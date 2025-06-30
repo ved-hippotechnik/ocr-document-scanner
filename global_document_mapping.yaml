@@ -1,0 +1,453 @@
+Argentina:
+- languages:
+  - es
+  name: DNI
+  patterns:
+    keywords:
+    - documento nacional de identidad
+    - "rep\xFAblica argentina"
+    languages:
+    - spanish
+    number_formats:
+    - \d{7,8}
+    text_indicators:
+    - argentina
+    - "rep\xFAblica argentina"
+  type: dni
+Australia:
+- languages:
+  - en
+  name: Driver Licence
+  patterns:
+    keywords:
+    - driver licence
+    - drivers licence
+    - transport
+    languages:
+    - english
+    number_formats:
+    - \d{8,10}
+    - '[A-Z]\d{7,9}'
+    text_indicators:
+    - australia
+    - new south wales
+    - victoria
+    - queensland
+  type: drivers_license
+Brazil:
+- languages:
+  - pt
+  name: RG
+  patterns:
+    keywords:
+    - registro geral
+    - rg
+    - "rep\xFAblica federativa do brasil"
+    languages:
+    - portuguese
+    number_formats:
+    - \d{1,2}\.\d{3}\.\d{3}-\d{1}
+    text_indicators:
+    - brasil
+    - brazil
+    - "rep\xFAblica federativa"
+  type: rg
+Canada:
+- languages:
+  - en
+  - fr
+  name: Driver's License
+  patterns:
+    keywords:
+    - driver's license
+    - permis de conduire
+    - licence
+    languages:
+    - english
+    - french
+    number_formats:
+    - '[A-Z0-9]{8,15}'
+    text_indicators:
+    - canada
+    - province
+    - ontario
+    - quebec
+    - british columbia
+  type: drivers_license
+Egypt:
+- languages:
+  - ar
+  - en
+  name: National ID Card
+  patterns:
+    keywords:
+    - "\u0628\u0637\u0627\u0642\u0629 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0642\
+      \u0648\u0645\u064A"
+    - national id
+    - egypt
+    - "\u0645\u0635\u0631"
+    languages:
+    - arabic
+    - english
+    number_formats:
+    - \d{14}
+    text_indicators:
+    - egypt
+    - "\u0645\u0635\u0631"
+    - "\u062C\u0645\u0647\u0648\u0631\u064A\u0629 \u0645\u0635\u0631 \u0627\u0644\u0639\
+      \u0631\u0628\u064A\u0629"
+  type: national_id
+France:
+- languages:
+  - fr
+  name: "Carte d'identit\xE9"
+  patterns:
+    keywords:
+    - "carte d'identit\xE9"
+    - "r\xE9publique fran\xE7aise"
+    - "identit\xE9"
+    languages:
+    - french
+    number_formats:
+    - \d{12}
+    text_indicators:
+    - france
+    - "r\xE9publique fran\xE7aise"
+    - carte nationale
+  type: carte_identite
+Germany:
+- languages:
+  - de
+  name: Personalausweis
+  patterns:
+    keywords:
+    - personalausweis
+    - bundesrepublik deutschland
+    - ausweis
+    languages:
+    - german
+    number_formats:
+    - '[A-Z]\d{8}'
+    - \d{9}[A-Z]
+    text_indicators:
+    - deutschland
+    - germany
+    - bundesrepublik
+  type: personalausweis
+- languages:
+  - de
+  name: "F\xFChrerschein"
+  patterns:
+    keywords:
+    - "f\xFChrerschein"
+    - fahrerlaubnis
+    - driving licence
+    languages:
+    - german
+    number_formats:
+    - \d{11}
+    text_indicators:
+    - deutschland
+    - "f\xFChrerschein"
+    - klasse
+  type: fuhrerschein
+India:
+- languages:
+  - hi
+  - en
+  name: Aadhaar Card
+  patterns:
+    keywords:
+    - aadhaar
+    - "\u0906\u0927\u093E\u0930"
+    - government of india
+    - "\u092D\u093E\u0930\u0924 \u0938\u0930\u0915\u093E\u0930"
+    languages:
+    - hindi
+    - english
+    number_formats:
+    - \d{4}\s*\d{4}\s*\d{4}
+    text_indicators:
+    - india
+    - "\u092D\u093E\u0930\u0924"
+    - unique identification
+  type: aadhaar_card
+Italy:
+- languages:
+  - it
+  name: "Carta d'identit\xE0"
+  patterns:
+    keywords:
+    - "carta d'identit\xE0"
+    - repubblica italiana
+    - comune
+    languages:
+    - italian
+    number_formats:
+    - '[A-Z]{2}\d{7}'
+    text_indicators:
+    - italia
+    - italy
+    - repubblica italiana
+  type: carta_identita
+Japan:
+- languages:
+  - ja
+  - en
+  name: My Number Card
+  patterns:
+    keywords:
+    - "\u500B\u4EBA\u756A\u53F7\u30AB\u30FC\u30C9"
+    - my number
+    - "\u30DE\u30A4\u30CA\u30F3\u30D0\u30FC"
+    languages:
+    - japanese
+    - english
+    number_formats:
+    - \d{4}\s\d{4}\s\d{4}
+    text_indicators:
+    - japan
+    - "\u65E5\u672C"
+    - "\u500B\u4EBA\u756A\u53F7"
+  type: mynumber_card
+Malaysia:
+- languages:
+  - ms
+  - en
+  name: MyKad
+  patterns:
+    keywords:
+    - mykad
+    - malaysia
+    - kad pengenalan
+    languages:
+    - malay
+    - english
+    number_formats:
+    - \d{6}-\d{2}-\d{4}
+    text_indicators:
+    - malaysia
+    - kad pengenalan
+  type: mykad
+Mexico:
+- languages:
+  - es
+  name: INE
+  patterns:
+    keywords:
+    - instituto nacional electoral
+    - ine
+    - "m\xE9xico"
+    languages:
+    - spanish
+    number_formats:
+    - \d{13}
+    text_indicators:
+    - "m\xE9xico"
+    - mexico
+    - estados unidos mexicanos
+  type: ine
+Netherlands:
+- languages:
+  - nl
+  name: Nederlandse identiteitskaart
+  patterns:
+    keywords:
+    - identiteitskaart
+    - nederland
+    - koninkrijk
+    languages:
+    - dutch
+    number_formats:
+    - '[A-Z]{2}[A-Z0-9]{6}'
+    text_indicators:
+    - nederland
+    - netherlands
+    - koninkrijk
+  type: identiteitskaart
+Nigeria:
+- languages:
+  - en
+  name: National Identification Number
+  patterns:
+    keywords:
+    - national identification number
+    - nin
+    - nigeria
+    languages:
+    - english
+    number_formats:
+    - \d{11}
+    text_indicators:
+    - nigeria
+    - federal republic of nigeria
+  type: nin
+Singapore:
+- languages:
+  - en
+  name: NRIC
+  patterns:
+    keywords:
+    - nric
+    - national registration identity card
+    - singapore
+    languages:
+    - english
+    number_formats:
+    - '[STFG]\d{7}[A-Z]'
+    text_indicators:
+    - singapore
+    - republic of singapore
+  type: nric
+South Africa:
+- languages:
+  - en
+  - af
+  name: Green ID Book
+  patterns:
+    keywords:
+    - identity document
+    - south africa
+    - republic
+    languages:
+    - english
+    - afrikaans
+    number_formats:
+    - \d{13}
+    text_indicators:
+    - south africa
+    - republic of south africa
+  type: green_id
+South Korea:
+- languages:
+  - ko
+  - en
+  name: Resident Registration Card
+  patterns:
+    keywords:
+    - "\uC8FC\uBBFC\uB4F1\uB85D\uC99D"
+    - resident registration
+    - "\uB300\uD55C\uBBFC\uAD6D"
+    languages:
+    - korean
+    - english
+    number_formats:
+    - \d{6}-\d{7}
+    text_indicators:
+    - korea
+    - "\uB300\uD55C\uBBFC\uAD6D"
+    - "\uC8FC\uBBFC\uB4F1\uB85D"
+  type: resident_card
+Spain:
+- languages:
+  - es
+  name: DNI
+  patterns:
+    keywords:
+    - documento nacional de identidad
+    - dni
+    - "espa\xF1a"
+    languages:
+    - spanish
+    number_formats:
+    - \d{8}[A-Z]
+    text_indicators:
+    - "espa\xF1a"
+    - spain
+    - "reino de espa\xF1a"
+  type: dni
+Thailand:
+- languages:
+  - th
+  - en
+  name: Thai National ID Card
+  patterns:
+    keywords:
+    - "\u0E1A\u0E31\u0E15\u0E23\u0E1B\u0E23\u0E30\u0E0A\u0E32\u0E0A\u0E19"
+    - national id card
+    - thailand
+    languages:
+    - thai
+    - english
+    number_formats:
+    - \d{1}-\d{4}-\d{5}-\d{2}-\d{1}
+    text_indicators:
+    - thailand
+    - "\u0E1B\u0E23\u0E30\u0E40\u0E17\u0E28\u0E44\u0E17\u0E22"
+    - "\u0E1A\u0E31\u0E15\u0E23\u0E1B\u0E23\u0E30\u0E0A\u0E32\u0E0A\u0E19"
+  type: thai_id
+United Arab Emirates:
+- languages:
+  - ar
+  - en
+  name: Emirates ID
+  patterns:
+    keywords:
+    - emirates id
+    - "\u0628\u0637\u0627\u0642\u0629 \u0627\u0644\u0647\u0648\u064A\u0629"
+    - federal authority
+    languages:
+    - arabic
+    - english
+    number_formats:
+    - 784-\d{4}-\d{7}-\d
+    text_indicators:
+    - uae
+    - united arab emirates
+    - "\u0627\u0644\u0625\u0645\u0627\u0631\u0627\u062A"
+  type: emirates_id
+United Kingdom:
+- languages:
+  - en
+  name: UK Driving Licence
+  patterns:
+    keywords:
+    - driving licence
+    - dvla
+    - driver and vehicle licensing agency
+    languages:
+    - english
+    number_formats:
+    - '[A-Z]{5}\d{6}[A-Z]{2}\d[A-Z]{2}'
+    text_indicators:
+    - united kingdom
+    - great britain
+    - driving licence
+  type: driving_licence
+United States:
+- languages:
+  - en
+  name: Driver's License
+  patterns:
+    keywords:
+    - driver license
+    - drivers license
+    - dl
+    - motor vehicle
+    languages:
+    - english
+    number_formats:
+    - '[A-Z0-9]{8,15}'
+    - '[A-Z]\d{7,12}'
+    text_indicators:
+    - united states
+    - state of
+    - department of motor vehicles
+  type: drivers_license
+- languages:
+  - en
+  name: State ID
+  patterns:
+    keywords:
+    - identification card
+    - state id
+    - identity card
+    languages:
+    - english
+    number_formats:
+    - '[A-Z0-9]{8,15}'
+    text_indicators:
+    - state of
+    - identification
+    - not a driver license
+  type: state_id

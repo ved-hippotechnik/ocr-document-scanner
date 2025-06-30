@@ -1,0 +1,60 @@
+research_plan:
+  methodology:
+  - Research official document specifications
+  - Collect sample documents (anonymized)
+  - Develop detection patterns
+  - Create preprocessing pipelines
+  - Implement extraction logic
+  - Test with real documents
+  - Community validation
+  objective: Expand OCR support to global document types
+  priorities:
+  - country: United States
+    country_code: USA
+    documents:
+    - complexity: high
+      name: drivers_license
+      priority: high
+    - complexity: medium
+      name: state_id
+      priority: medium
+    - complexity: high
+      name: green_card
+      priority: medium
+    justification: Large user base, high demand
+  - country: United Kingdom
+    country_code: GBR
+    documents:
+    - complexity: medium
+      name: driving_licence
+      priority: high
+    - complexity: high
+      name: biometric_residence_permit
+      priority: medium
+    justification: English language, standardized format
+  - country: Germany
+    country_code: DEU
+    documents:
+    - complexity: medium
+      name: personalausweis
+      priority: high
+    - complexity: medium
+      name: fuhrerschein
+      priority: medium
+    justification: EU standards, large population
+  - country: Canada
+    country_code: CAN
+    documents:
+    - complexity: high
+      name: drivers_license
+      priority: high
+    - complexity: medium
+      name: health_card
+      priority: low
+    justification: Similar to US format, English/French
+  resources_needed:
+  - Document samples from each country
+  - Native language speakers for validation
+  - OCR models for different languages
+  - Government documentation access
+  timeline: 6-12 months

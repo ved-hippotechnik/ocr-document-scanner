@@ -1,0 +1,142 @@
+/* Apple-inspired styling */
+
+/* Base styles */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #F2F2F7;
+  color: #000000;
+}
+
+.App {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.content {
+  flex: 1;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+
+/* Card styling */
+.apple-card {
+  background: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.apple-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Button styling */
+.apple-button {
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  text-transform: none;
+}
+
+/* Table styling */
+.MuiTableContainer-root {
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.MuiTableHead-root {
+  background-color: #F9F9F9;
+}
+
+/* Code blocks */
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background-color: #F2F2F7;
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 14px;
+  overflow-x: auto;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F2F2F7;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C7C7CC;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8E8E93;
+}
+
+/* Dialog styling */
+.apple-dialog {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Form controls */
+.apple-input {
+  border-radius: 8px;
+}
+
+/* Navbar specific styles */
+.apple-navbar {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.8);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Scanner page styles */
+.scanner-container {
+  background-color: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+/* Dashboard page styles */
+.dashboard-container {
+  display: grid;
+  grid-gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .content {
+    padding: 16px;
+  }
+  
+  .dashboard-container {
+    grid-template-columns: 1fr;
+  }
+}

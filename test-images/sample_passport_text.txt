@@ -1,0 +1,14 @@
+PASSPORT
+
+Surname: SMITH
+Given Names: JOHN MICHAEL
+Nationality: USA
+Date of Birth: 15 JAN 1985
+Place of Birth: NEW YORK
+Date of Issue: 01 JUN 2020
+Date of Expiry: 01 JUN 2030
+Passport No: AB1234567
+Sex: M
+
+P<USASMITH<<JOHN<MICHAEL<<<<<<<<<<<<<<<<<<<<<
+AB1234567USA8501159M3006018<<<<<<<<<<<<<<04
