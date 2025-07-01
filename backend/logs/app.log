@@ -1,0 +1,57 @@
+2025-06-30 21:38:16,242 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
+2025-06-30 21:38:19,555 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
+2025-06-30 21:48:19,782 ERROR: Document processing error for enhanced_scan: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py:81]
+2025-06-30 21:48:19,782 ERROR: Unexpected error: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py:220]
+Traceback (most recent call last):
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 77, in enhanced_scan
+    quality_result = quality_analyzer.analyze_quality(image_array)
+AttributeError: 'DocumentQualityAnalyzer' object has no attribute 'analyze_quality'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py", line 307, in wrapper
+    return f(*args, **kwargs)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py", line 60, in wrapper
+    result = func(*args, **kwargs)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 194, in enhanced_scan
+    performance_monitor.log_error('enhanced_scan', str(e))
+AttributeError: 'PerformanceMonitor' object has no attribute 'log_error'
+2025-06-30 21:48:19,792 ERROR: Document processing error for classify: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py:81]
+2025-06-30 21:48:19,792 ERROR: Unexpected error: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py:220]
+Traceback (most recent call last):
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 219, in classify_document_endpoint
+    classification_result = document_classifier.classify_document(image_array)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/classification.py", line 88, in classify_document
+    text_results = self._classify_by_text(text)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/classification.py", line 111, in _classify_by_text
+    text_lower = text.lower()
+AttributeError: 'numpy.ndarray' object has no attribute 'lower'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py", line 307, in wrapper
+    return f(*args, **kwargs)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py", line 60, in wrapper
+    result = func(*args, **kwargs)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 246, in classify_document_endpoint
+    performance_monitor.log_error('classify', str(e))
+AttributeError: 'PerformanceMonitor' object has no attribute 'log_error'
+2025-06-30 21:48:19,802 ERROR: Document processing error for quality_check: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py:81]
+2025-06-30 21:48:19,802 ERROR: Unexpected error: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py:220]
+Traceback (most recent call last):
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 271, in quality_check_endpoint
+    quality_result = quality_analyzer.analyze_quality(image_array)
+AttributeError: 'DocumentQualityAnalyzer' object has no attribute 'analyze_quality'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py", line 307, in wrapper
+    return f(*args, **kwargs)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py", line 60, in wrapper
+    result = func(*args, **kwargs)
+  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 292, in quality_check_endpoint
+    performance_monitor.log_error('quality_check', str(e))
+AttributeError: 'PerformanceMonitor' object has no attribute 'log_error'
