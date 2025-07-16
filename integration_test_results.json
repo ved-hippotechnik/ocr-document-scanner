@@ -1,0 +1,51 @@
+{
+  "timestamp": "2025-07-01 18:48:33",
+  "overall_success": true,
+  "test_results": [
+    {
+      "test": "Backend Health Check",
+      "passed": true,
+      "message": "Backend is responsive"
+    },
+    {
+      "test": "Frontend Accessibility",
+      "passed": true,
+      "message": "Frontend is accessible"
+    },
+    {
+      "test": "Document Types Endpoint",
+      "passed": true,
+      "message": "All 6 document types present"
+    },
+    {
+      "test": "Stats Endpoint",
+      "passed": true,
+      "message": "All required fields and document types present"
+    },
+    {
+      "test": "Documents Endpoint",
+      "passed": true,
+      "message": "Documents endpoint working correctly"
+    },
+    {
+      "test": "Scan Endpoint Test",
+      "passed": true,
+      "message": "Successfully processed sample_passport.jpg"
+    },
+    {
+      "test": "Reset Stats Endpoint",
+      "passed": true,
+      "message": "Reset stats working correctly"
+    },
+    {
+      "test": "CORS Headers",
+      "passed": true,
+      "message": "CORS appears to be configured"
+    }
+  ],
+  "summary": {
+    "total": 8,
+    "passed": 8,
+    "failed": 0
+  }
+}

@@ -195,7 +195,7 @@ const Scanner = () => {
     formData.append('image', selectedFile);
 
     try {
-      const response = await axios.post('http://localhost:5002/api/scan', formData, {
+      const response = await axios.post('http://localhost:5001/api/scan', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }

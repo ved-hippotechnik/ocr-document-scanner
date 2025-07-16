@@ -114,7 +114,7 @@ def init_db(app):
         # Initialize document type stats for known processors
         known_types = [
             'emirates_id', 'aadhaar', 'driving_license', 
-            'passport', 'us_drivers_license'
+            'passport', 'us_drivers_license', 'us_green_card'
         ]
         
         for doc_type in known_types:

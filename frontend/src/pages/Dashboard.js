@@ -40,6 +40,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import PublicIcon from '@mui/icons-material/Public';
 import BadgeIcon from '@mui/icons-material/Badge';
 import PassportIcon from '@mui/icons-material/ArticleOutlined';
+import CreditCardIcon from '@mui/icons-material/CreditCard';
 import DownloadIcon from '@mui/icons-material/Download';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CloseIcon from '@mui/icons-material/Close';
@@ -74,6 +75,54 @@ ChartJS.register(
   ArcElement
 );
 
+// Utility functions to reduce cognitive complexity
+const getDocumentTypeIcon = (documentType, iconProps = {}) => {
+  const baseProps = { sx: { fontSize: { xs: '1.25rem', sm: '1.5rem' }, ...iconProps.sx }, ...iconProps };
+  
+  switch (documentType) {
+    case 'passport':
+      return <PassportIcon {...baseProps} />;
+    case 'driving_license':
+      return <DescriptionIcon {...baseProps} />;
+    case 'us_green_card':
+      return <CreditCardIcon {...baseProps} />;
+    case 'id_card':
+    case 'ID Card':
+      return <BadgeIcon {...baseProps} />;
+    case 'aadhaar':
+      return <DescriptionIcon {...baseProps} />;
+    default:
+      return <DescriptionIcon {...baseProps} />;
+  }
+};
+
+const getDocumentTypeName = (documentType) => {
+  switch (documentType) {
+    case 'passport':
+      return 'Passport';
+    case 'driving_license':
+      return 'Driving License';
+    case 'us_green_card':
+      return 'US Green Card';
+    case 'id_card':
+    case 'ID Card':
+      return 'ID Card';
+    case 'aadhaar':
+      return 'Aadhaar Card';
+    default:
+      return documentType.charAt(0).toUpperCase() + documentType.slice(1).replace(/_/g, ' ');
+  }
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'Not available';
+  try {
+    return new Date(dateString).toLocaleDateString();
+  } catch {
+    return dateString;
+  }
+};
+
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -93,7 +142,7 @@ const Dashboard = () => {
   const fetchDocuments = async () => {
     setDocumentsLoading(true);
     try {
-      const response = await axios.get('http://localhost:5002/api/documents');
+      const response = await axios.get('http://localhost:5001/api/documents');
       // Ensure we're setting the documents array from the response
       setDocuments(response.data.documents || []);
       setError(null);
@@ -107,7 +156,7 @@ const Dashboard = () => {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5002/api/stats');
+      const response = await axios.get('http://localhost:5001/api/stats');
       setStats(response.data);
       setError(null);
     } catch (err) {
@@ -120,7 +169,7 @@ const Dashboard = () => {
   const resetStats = async () => {
     setLoading(true);
     try {
-      await axios.post('http://localhost:5002/api/reset-stats');
+      await axios.post('http://localhost:5001/api/reset-stats');
       fetchStats();
     } catch (err) {
       setError('Error resetting statistics: ' + err.message);
@@ -1443,6 +1492,20 @@ const Dashboard = () => {
                                 >
                                   <PassportIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: '#007AFF' }} />
                                 </Box>
+                              ) : document.document_type === 'us_green_card' ? (
+                                <Box 
+                                  sx={{ 
+                                    bgcolor: 'rgba(52, 199, 89, 0.1)',
+                                    borderRadius: '50%',
+                                    p: 0.75,
+                                    mr: 1.5,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <CreditCardIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: '#34C759' }} />
+                                </Box>
                               ) : (document.document_type === 'id_card' || document.document_type === 'ID Card') ? (
                                 <Box 
                                   sx={{ 
@@ -1692,6 +1755,8 @@ const Dashboard = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                               {scan.document_type === 'passport' ? (
                                 <PassportIcon sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, mr: { xs: 0.5, sm: 1 }, color: 'info.main' }} />
+                              ) : scan.document_type === 'us_green_card' ? (
+                                <CreditCardIcon sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, mr: { xs: 0.5, sm: 1 }, color: 'success.main' }} />
                               ) : (scan.document_type === 'id_card' || scan.document_type === 'ID Card') ? (
                                 <BadgeIcon sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, mr: { xs: 0.5, sm: 1 }, color: 'success.main' }} />
                               ) : (
@@ -1700,6 +1765,7 @@ const Dashboard = () => {
                               <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
                                 {scan.document_type === 'id_card' ? 'ID Card' : 
                                  scan.document_type === 'driving_license' ? 'Driving License' :
+                                 scan.document_type === 'us_green_card' ? 'US Green Card' :
                                  scan.document_type.charAt(0).toUpperCase() + scan.document_type.slice(1).replace('_', ' ')}
                               </Typography>
                             </Box>
@@ -1806,13 +1872,16 @@ const Dashboard = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
           {selectedScan?.document_type === 'passport' ? (
             <PassportIcon sx={{ mr: 1, color: 'info.main', fontSize: { xs: '1.25rem', sm: '1.5rem' } }} />
+          ) : selectedScan?.document_type === 'us_green_card' ? (
+            <CreditCardIcon sx={{ mr: 1, color: 'success.main', fontSize: { xs: '1.25rem', sm: '1.5rem' } }} />
           ) : (selectedScan?.document_type === 'id_card' || selectedScan?.document_type === 'ID Card') ? (
             <BadgeIcon sx={{ mr: 1, color: 'success.main', fontSize: { xs: '1.25rem', sm: '1.5rem' } }} />
           ) : (
             <DescriptionIcon sx={{ mr: 1, color: 'warning.main', fontSize: { xs: '1.25rem', sm: '1.5rem' } }} />
           )}
           <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {selectedScan?.document_type?.charAt(0).toUpperCase() + selectedScan?.document_type?.slice(1).replace('_', ' ')} Details
+            {selectedScan?.document_type === 'us_green_card' ? 'US Green Card Details' : 
+             selectedScan?.document_type?.charAt(0).toUpperCase() + selectedScan?.document_type?.slice(1).replace('_', ' ')} Details
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', ml: 1, flexShrink: 0 }}>
@@ -1920,6 +1989,8 @@ const Dashboard = () => {
                       >
                         <MenuItem value="passport">Passport</MenuItem>
                         <MenuItem value="id_card">ID Card</MenuItem>
+                        <MenuItem value="driving_license">Driving License</MenuItem>
+                        <MenuItem value="us_green_card">US Green Card</MenuItem>
                         <MenuItem value="other">Other</MenuItem>
                       </TextField>
                       <TextField

@@ -261,29 +261,72 @@ class PassportProcessor(DocumentProcessor):
         return None
     
     def _extract_issue_date(self, text: str) -> Optional[str]:
-        """Extract date of issue"""
+        """Extract date of issue with enhanced patterns"""
         patterns = [
+            # Standard patterns with various separators
             r'(?:Date of Issue[/:\s]+|जारी करने की तिथि[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
-            r'(?:Issue Date[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})'
+            r'(?:Issue Date[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'(?:Date of Issue[/:\s]+|जारी करने की तिथि[/:\s]+)(\d{1,2}[.\s]\d{1,2}[.\s]\d{4})',
+            # With written month names
+            r'(?:Date of Issue[/:\s]+)(\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4})',
+            r'(?:Issue Date[/:\s]+)(\d{1,2}\s+(?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{4})',
+            # Alternative formats
+            r'Issue[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'Issued[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            # Date patterns near "Issue" text
+            r'Issue[^0-9]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            # Common OCR misreads
+            r'(?:0ate of Issue[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'(?:Dale of Issue[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})'
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                return match.group(1).strip()
+                date_str = match.group(1).strip()
+                # Normalize the date format
+                return self._normalize_date(date_str)
         return None
     
     def _extract_expiry_date(self, text: str) -> Optional[str]:
-        """Extract date of expiry"""
+        """Extract date of expiry with enhanced patterns"""
         patterns = [
+            # Standard patterns with various separators
             r'(?:Date of Expiry[/:\s]+|समाप्ति तिथि[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
-            r'(?:Expiry Date[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})'
+            r'(?:Expiry Date[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'(?:Date of Expiry[/:\s]+|समाप्ति तिथि[/:\s]+)(\d{1,2}[.\s]\d{1,2}[.\s]\d{4})',
+            # With written month names
+            r'(?:Date of Expiry[/:\s]+)(\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4})',
+            r'(?:Expiry Date[/:\s]+)(\d{1,2}\s+(?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{4})',
+            # Alternative formats
+            r'Expiry[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'Expires[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'Valid until[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            # Date patterns near "Expiry" text
+            r'Expiry[^0-9]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            # Common OCR misreads
+            r'(?:0ate of Expiry[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'(?:Dale of Expiry[/:\s]+)(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            # MRZ pattern (last line usually contains expiry date)
+            r'[A-Z0-9<]*(\d{6})[A-Z0-9<]*$'  # YYMMDD format in MRZ
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
             if match:
-                return match.group(1).strip()
+                date_str = match.group(1).strip()
+                # Handle MRZ 6-digit date format (YYMMDD)
+                if len(date_str) == 6 and date_str.isdigit():
+                    # Convert YYMMDD to DD/MM/YYYY
+                    yy = int(date_str[:2])
+                    mm = date_str[2:4]
+                    dd = date_str[4:6]
+                    # Assume years 00-30 are 2000s, 31-99 are 1900s
+                    yyyy = 2000 + yy if yy <= 30 else 1900 + yy
+                    date_str = f"{dd}/{mm}/{yyyy}"
+                
+                # Normalize the date format
+                return self._normalize_date(date_str)
         return None
     
     def _extract_place_of_issue(self, text: str) -> Optional[str]:
@@ -314,6 +357,74 @@ class PassportProcessor(DocumentProcessor):
                 return match.group(1).strip()
         return None
     
+    def _normalize_date(self, date_str: str) -> str:
+        """Normalize date string to DD/MM/YYYY format"""
+        if not date_str:
+            return date_str
+            
+        # Remove extra spaces and clean up
+        date_str = re.sub(r'\s+', ' ', date_str.strip())
+        
+        # Handle month name formats
+        month_map = {
+            'JANUARY': '01', 'JAN': '01',
+            'FEBRUARY': '02', 'FEB': '02',
+            'MARCH': '03', 'MAR': '03',
+            'APRIL': '04', 'APR': '04',
+            'MAY': '05',
+            'JUNE': '06', 'JUN': '06',
+            'JULY': '07', 'JUL': '07',
+            'AUGUST': '08', 'AUG': '08',
+            'SEPTEMBER': '09', 'SEP': '09',
+            'OCTOBER': '10', 'OCT': '10',
+            'NOVEMBER': '11', 'NOV': '11',
+            'DECEMBER': '12', 'DEC': '12'
+        }
+        
+        # Convert month names to numbers
+        for month_name, month_num in month_map.items():
+            if month_name in date_str.upper():
+                date_str = date_str.upper().replace(month_name, month_num)
+                break
+        
+        # Try different date patterns and normalize to DD/MM/YYYY
+        patterns = [
+            r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})',  # DD/MM/YYYY or MM/DD/YYYY
+            r'(\d{1,2})[.\s](\d{1,2})[.\s](\d{4})',  # DD.MM.YYYY
+            r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})',  # DD MM YYYY
+            r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})'   # YYYY/MM/DD
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, date_str)
+            if match:
+                part1, part2, part3 = match.groups()
+                
+                # Handle YYYY/MM/DD format
+                if len(part1) == 4:  # Year first
+                    year, month, day = part1, part2, part3
+                else:
+                    # Assume DD/MM/YYYY format for Indian documents
+                    day, month, year = part1, part2, part3
+                
+                # Ensure proper formatting
+                day = day.zfill(2)
+                month = month.zfill(2)
+                
+                # Validate date components
+                try:
+                    day_int = int(day)
+                    month_int = int(month)
+                    year_int = int(year)
+                    
+                    if 1 <= day_int <= 31 and 1 <= month_int <= 12 and 1900 <= year_int <= 2100:
+                        return f"{day}/{month}/{year}"
+                except ValueError:
+                    continue
+        
+        # Return original if no pattern matches
+        return date_str
+
     def get_display_name(self) -> str:
         """Get display name for this document type"""
         return "Passport"

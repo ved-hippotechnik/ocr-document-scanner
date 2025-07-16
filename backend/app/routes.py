@@ -8,6 +8,7 @@ from PIL import Image
 import os
 import pytesseract
 from passporteye import read_mrz
+from .processors.registry import processor_registry
 
 main = Blueprint('main', __name__)
 
@@ -18,6 +19,12 @@ document_stats = {
         'passport': 0,
         'id_card': 0,
         'driving_license': 0,
+        'aadhaar': 0,
+        'us_green_card': 0,
+        'uk_passport': 0,
+        'canadian_passport': 0,
+        'australian_passport': 0,
+        'german_passport': 0,
         'other': 0
     },
     'nationalities': {},
@@ -760,209 +767,127 @@ def scan_document():
     # Read and process the image
     img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
     
-    # Preprocess the image
+    # Initial OCR scan to detect document type
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    initial_text = pytesseract.image_to_string(gray)
     
-    # Apply adaptive histogram equalization for better contrast
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
+    print(f"DEBUG: Initial OCR text preview: {initial_text[:200]}...")
     
-    # Denoise the image
-    gray = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+    # Use processor registry to detect document type and get appropriate processor
+    doc_display_name, processor = processor_registry.detect_document_type(initial_text, img)
     
-    # Apply Gaussian blur
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    if processor:
+        print(f"DEBUG: Detected document type: {doc_display_name} using {processor.__class__.__name__}")
+        
+        # Use the specific processor to extract information
+        doc_info = processor.process(img)
+        
+        # Update document type for statistics
+        doc_type = processor.document_type.replace('_passport', '').replace('_', '_')
+        if processor.document_type == 'us_green_card':
+            doc_type = 'us_green_card'
+        elif 'passport' in processor.document_type:
+            doc_type = processor.document_type
+        elif processor.document_type == 'emirates_id':
+            doc_type = 'id_card'
+        elif processor.document_type == 'aadhaar_card':
+            doc_type = 'aadhaar'
+        elif processor.document_type == 'driving_license':
+            doc_type = 'driving_license'
+        else:
+            doc_type = 'other'
+            
+    else:
+        print("DEBUG: No specific processor found, using fallback processing")
+        
+        # Fallback to original processing method
+        # Preprocess the image
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+        
+        # Denoise the image
+        gray = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+        
+        # Apply Gaussian blur
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Apply adaptive thresholding
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY, 11, 2)
+        
+        # OCR with pytesseract
+        text = pytesseract.image_to_string(binary)
+        
+        # Try to extract MRZ data
+        mrz_data = None
+        try:
+            # Convert OpenCV image to PIL format for passporteye
+            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            
+            # Save to a temporary buffer
+            buffer = io.BytesIO()
+            pil_img.save(buffer, format="JPEG")
+            buffer.seek(0)
+            
+            # Read MRZ
+            mrz = read_mrz(buffer)
+            if mrz:
+                mrz_data = mrz.to_dict()
+        except Exception as e:
+            print(f"MRZ extraction error: {e}")
+        
+        # Detect document type using legacy method
+        doc_type = detect_document_type(text, mrz_data)
+        
+        # Extract document information using legacy method
+        doc_info = extract_document_info(text, mrz_data)
     
-    # Apply adaptive thresholding
-    binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                  cv2.THRESH_BINARY, 11, 2)
-    
-    # OCR with pytesseract - initial scan
-    text = pytesseract.image_to_string(binary)
-    
-    # Check if this might be an Emirates ID or driving license and apply enhanced processing
-    emirates_id_detected = detect_emirates_id(text)
-    driving_license_detected = detect_driving_license(text)
-    aadhaar_card_detected = detect_aadhaar_card(text)
-    
-    print(f"DEBUG: Emirates ID detected: {emirates_id_detected}")
-    print(f"DEBUG: Driving license detected: {driving_license_detected}")
-    print(f"DEBUG: Aadhaar card detected: {aadhaar_card_detected}")
-    print(f"DEBUG: OCR text preview: {text[:200]}...")
-    
-    if aadhaar_card_detected:
-        print("Aadhaar card detected - applying enhanced processing")
-        # Use enhanced Aadhaar card processing
-        processed_images = preprocess_aadhaar_card(img)
-        text_results = extract_text_aadhaar_card(processed_images)
-        
-        # Add the original text to the results
-        text_results.append(text)
-        
-        # Extract Aadhaar card specific information
-        aadhaar_info = enhanced_aadhaar_extraction(text_results)
-        
-        # Use the best combined text for further processing
-        text = '\n'.join(text_results)
-        
-    elif emirates_id_detected:
-        print("Emirates ID detected - applying enhanced processing")
-        # Use enhanced Emirates ID processing
-        processed_images = preprocess_emirates_id(img)
-        text_results = extract_text_emirates_id(processed_images)
-        
-        # Add the original text to the results
-        text_results.append(text)
-        
-        # Extract Emirates ID specific information
-        emirates_info = enhanced_emirates_id_extraction(text_results)
-        
-        # Use the best combined text for further processing
-        text = '\n'.join(text_results)
-        
-    elif driving_license_detected:
-        print("Driving license detected - applying enhanced processing")
-        # Use enhanced driving license processing
-        processed_images = preprocess_driving_license(img)
-        text_results = extract_text_driving_license(processed_images)
-        
-        # Add the original text to the results
-        text_results.append(text)
-        
-        # Extract driving license specific information
-        license_info = enhanced_driving_license_extraction(text_results)
-        
-        # Use the best combined text for further processing
-        text = '\n'.join(text_results)
-        text_results = extract_text_aadhaar_card(processed_images)
-        
-        # Add the original text to the results
-        text_results.append(text)
-        
-        # Extract Aadhaar card specific information
-        aadhaar_info = enhanced_aadhaar_extraction(text_results)
-        
-        # Use the best combined text for further processing
-        text = '\n'.join(text_results)
-    
-    # Try to extract MRZ data
-    mrz_data = None
-    try:
-        # Convert OpenCV image to PIL format for passporteye
-        pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        
-        # Save to a temporary buffer
-        buffer = io.BytesIO()
-        pil_img.save(buffer, format="JPEG")
-        buffer.seek(0)
-        
-        # Read MRZ
-        mrz = read_mrz(buffer)
-        if mrz:
-            mrz_data = mrz.to_dict()
-    except Exception as e:
-        print(f"MRZ extraction error: {e}")
-    
-    # Detect document type
-    doc_type = detect_document_type(text, mrz_data)
-    
-    # Extract document information
-    doc_info = extract_document_info(text, mrz_data)
-    
-    # If we detected Aadhaar, Emirates ID or driving license, merge the enhanced extraction results
-    if aadhaar_card_detected and 'aadhaar_info' in locals():
-        # Merge Aadhaar-specific extracted info with general extraction
-        # For Aadhaar card, prioritize enhanced extraction results
-        for key, value in aadhaar_info.items():
-            if value:
-                doc_info[key] = value  # Override existing values for Aadhaar card
-        
-        # Force document type to id_card for Aadhaar card
-        doc_type = 'id_card'
-        doc_info['document_type'] = 'Aadhaar Card'
-        
-    elif emirates_id_detected and 'emirates_info' in locals():
-        # Merge Emirates-specific extracted info with general extraction
-        # For Emirates ID, prioritize enhanced extraction results
-        for key, value in emirates_info.items():
-            if value:
-                doc_info[key] = value  # Override existing values for Emirates ID
-        
-        # Force document type to id_card for Emirates ID
-        doc_type = 'id_card'
-        doc_info['document_type'] = 'ID Card'
-        
-    elif driving_license_detected and 'license_info' in locals():
-        # Merge driving license-specific extracted info with general extraction
-        # For driving license, prioritize enhanced extraction results
-        print(f"DEBUG: Merging license_info: {license_info}")
-        print(f"DEBUG: Original doc_info full_name: {doc_info.get('full_name')}")
-        
-        for key, value in license_info.items():
-            if value:
-                print(f"DEBUG: Setting {key} = {value}")
-                doc_info[key] = value  # Override existing values for driving license
-        
-        print(f"DEBUG: Final doc_info full_name: {doc_info.get('full_name')}")
-        
-        # Force document type to driving_license
-        doc_type = 'driving_license'
-        doc_info['document_type'] = 'Driving License'
-    
-    # Use document type from extracted info (which is properly capitalized)
-    final_doc_type = doc_info.get('document_type') or doc_type.capitalize() if doc_type else 'Other'
+    # Use document type and info from processor or fallback
+    if processor:
+        final_doc_type = doc_info.get('document_type', doc_display_name)
+        processing_method = f"enhanced_{processor.document_type}"
+        confidence = doc_info.get('confidence', 'high')
+        text = doc_info.get('raw_text', initial_text)
+    else:
+        final_doc_type = doc_info.get('document_type') or doc_type.capitalize() if doc_type else 'Other'
+        processing_method = 'standard'
+        confidence = 'medium'
+        text = initial_text
     
     # Convert internal document types to proper display format
-    display_doc_type = final_doc_type.lower()
-    if display_doc_type == 'id card':
+    display_doc_type = final_doc_type
+    if final_doc_type.lower() == 'id card':
         display_doc_type = 'ID Card'
-    elif display_doc_type == 'aadhaar card':
+    elif final_doc_type.lower() == 'aadhaar card':
         display_doc_type = 'Aadhaar Card'
-    elif display_doc_type == 'driving license':
+    elif final_doc_type.lower() == 'driving license':
         display_doc_type = 'Driving License'
-    elif doc_type == 'id_card':
-        display_doc_type = 'ID Card'
-    elif doc_type == 'driving_license':
-        display_doc_type = 'Driving License'
-    elif doc_type == 'passport':
-        display_doc_type = 'Passport'
+    elif 'passport' in final_doc_type.lower():
+        display_doc_type = final_doc_type
     else:
         display_doc_type = final_doc_type
     
-    # Use nationality from extracted document info if available, otherwise fallback to direct extraction
-    # For Emirates ID, prioritize the enhanced extraction nationality
-    # For driving license, use enhanced extraction if available
-    if (emirates_id_detected or driving_license_detected or aadhaar_card_detected) and doc_info.get('nationality'):
-        nationality = doc_info.get('nationality')
-    else:
-        nationality = doc_info.get('nationality') or extract_nationality(text, mrz_data)
+    # Extract nationality
+    nationality = doc_info.get('nationality') or doc_info.get('country_of_birth') or 'Unknown'
+    if not nationality or nationality == 'Unknown':
+        nationality = extract_nationality(text, None)
     
     # Update statistics
     document_stats['total_scanned'] += 1
-    # Use the base document type for statistics (lowercase)
-    base_doc_type = doc_type.lower() if doc_type else 'other'
-    if base_doc_type not in document_stats['document_types']:
-        document_stats['document_types'][base_doc_type] = 0
-    document_stats['document_types'][base_doc_type] += 1
+    
+    # Use the appropriate document type for statistics
+    if doc_type not in document_stats['document_types']:
+        document_stats['document_types'][doc_type] = 0
+    document_stats['document_types'][doc_type] += 1
     
     if nationality not in document_stats['nationalities']:
         document_stats['nationalities'][nationality] = 0
     document_stats['nationalities'][nationality] += 1
     
-    # Add to scan history with complete extracted information
-    processing_method = 'standard'
-    if aadhaar_card_detected:
-        processing_method = 'enhanced_aadhaar'
-    elif emirates_id_detected:
-        processing_method = 'enhanced_emirates_id'
-    elif driving_license_detected:
-        processing_method = 'enhanced_driving_license'
-        
-    confidence = 'high' if (emirates_id_detected or driving_license_detected or aadhaar_card_detected) else 'medium'
-    
+    # Add to scan history
     scan_record = {
         'timestamp': datetime.now().isoformat(),
-        'document_type': base_doc_type,
+        'document_type': doc_type,
         'nationality': nationality,
         'extracted_info': doc_info,
         'extracted_text': text,
@@ -974,13 +899,13 @@ def scan_document():
     # Store extracted document data for the documents endpoint
     document_record = {
         'timestamp': scan_record['timestamp'],
-        'document_type': base_doc_type,
+        'document_type': doc_type,
         'nationality': nationality,
-        'full_name': doc_info.get('full_name'),
-        'document_number': doc_info.get('document_number'),
+        'full_name': doc_info.get('full_name') or doc_info.get('given_name', '') + ' ' + doc_info.get('family_name', ''),
+        'document_number': doc_info.get('document_number') or doc_info.get('passport_number') or doc_info.get('card_number'),
         'date_of_birth': doc_info.get('date_of_birth'),
-        'date_of_expiry': doc_info.get('date_of_expiry'),
-        'gender': doc_info.get('gender'),
+        'date_of_expiry': doc_info.get('date_of_expiry') or doc_info.get('expiry_date'),
+        'gender': doc_info.get('gender') or doc_info.get('sex'),
         'place_of_issue': doc_info.get('place_of_issue'),
         'issue_date': doc_info.get('issue_date'),
         'unified_number': doc_info.get('unified_number')
@@ -1065,6 +990,8 @@ def reset_stats():
             'passport': 0,
             'id_card': 0,
             'driving_license': 0,
+            'aadhaar': 0,
+            'us_green_card': 0,
             'other': 0
         },
         'nationalities': {},
@@ -1072,6 +999,27 @@ def reset_stats():
         'documents': []
     }
     return jsonify({'success': True, 'message': 'Statistics reset successfully'})
+
+@main.route('/api/document-types', methods=['GET'])
+def get_document_types():
+    """Get all supported document types"""
+    document_types = [
+        {'id': 'passport', 'name': 'Passport', 'description': 'Generic international passport document'},
+        {'id': 'id_card', 'name': 'ID Card', 'description': 'Government issued identification card'},
+        {'id': 'driving_license', 'name': 'Driving License', 'description': 'Motor vehicle driving license'},
+        {'id': 'aadhaar', 'name': 'Aadhaar Card', 'description': 'Indian unique identification card'},
+        {'id': 'us_green_card', 'name': 'US Green Card', 'description': 'US Permanent Resident Card'},
+        {'id': 'uk_passport', 'name': 'UK Passport', 'description': 'United Kingdom passport'},
+        {'id': 'canadian_passport', 'name': 'Canadian Passport', 'description': 'Canadian passport'},
+        {'id': 'australian_passport', 'name': 'Australian Passport', 'description': 'Australian passport'},
+        {'id': 'german_passport', 'name': 'German Passport', 'description': 'German passport (Deutscher Reisepass)'},
+        {'id': 'other', 'name': 'Other Document', 'description': 'Other government or official documents'}
+    ]
+    return jsonify({
+        'success': True,
+        'document_types': document_types,
+        'total': len(document_types)
+    })
 
 def preprocess_emirates_id(image):
     """

@@ -23,59 +23,67 @@ class USDriversLicenseProcessor(DocumentProcessor):
         text_lower = text.lower()
         
         # Look for US driver's license specific indicators
-        us_dl_indicators = [
+        us_dl_specific_indicators = [
             'driver license',
             'drivers license',
             'driver\'s license',
             'department of motor vehicles',
             'dmv',
-            'state of',
             'dl no',
             'lic no',
             'license no',
             'license number',
-            'class',
             'restrictions',
-            'endorsements',
+            'endorsements'
+        ]
+        
+        # General indicators that need context
+        general_indicators = [
             'expires',
             'issued',
             'height',
             'weight',
-            'sex',
             'eyes',
-            'hair'
+            'hair',
+            'class'
         ]
         
-        # Check for US DL number patterns (varies by state)
+        # Check for US DL number patterns (only if license context is present)
         us_dl_patterns = [
             r'\b[A-Z]{1,2}[\d]{6,8}\b',  # Many states
             r'\b\d{8,9}\b',  # Numeric format
             r'\b[A-Z]\d{8}\b',  # Letter + 8 digits
             r'\b[A-Z]{2}\d{6}\b'  # 2 letters + 6 digits
         ]
+
+        has_dl_pattern = False
+        if 'license' in text_lower or 'driver' in text_lower or 'dmv' in text_lower:
+            has_dl_pattern = any(bool(re.search(pattern, text)) for pattern in us_dl_patterns)
         
-        has_dl_pattern = any(bool(re.search(pattern, text)) for pattern in us_dl_patterns)
+        # Check for specific indicators
+        has_specific_indicators = any(indicator in text_lower for indicator in us_dl_specific_indicators)
         
-        # Check for indicators
-        has_indicators = any(indicator in text_lower for indicator in us_dl_indicators)
-        
-        # Check for state names
+        # Check for state names with driver license context (use word boundaries)
         us_states = [
-            'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado',
-            'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho',
-            'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana',
-            'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota',
-            'mississippi', 'missouri', 'montana', 'nebraska', 'nevada',
-            'new hampshire', 'new jersey', 'new mexico', 'new york',
-            'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon',
-            'pennsylvania', 'rhode island', 'south carolina', 'south dakota',
-            'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington',
-            'west virginia', 'wisconsin', 'wyoming'
+            r'\balabama\b', r'\balaska\b', r'\barizona\b', r'\barkansas\b', r'\bcalifornia\b', r'\bcolorado\b',
+            r'\bconnecticut\b', r'\bdelaware\b', r'\bflorida\b', r'\bgeorgia\b', r'\bhawaii\b', r'\bidaho\b',
+            r'\billinois\b', r'\bindiana\b', r'\biowa\b', r'\bkansas\b', r'\bkentucky\b', r'\blouisiana\b',
+            r'\bmaine\b', r'\bmaryland\b', r'\bmassachusetts\b', r'\bmichigan\b', r'\bminnesota\b',
+            r'\bmississippi\b', r'\bmissouri\b', r'\bmontana\b', r'\bnebraska\b', r'\bnevada\b',
+            r'\bnew hampshire\b', r'\bnew jersey\b', r'\bnew mexico\b', r'\bnew york\b',
+            r'\bnorth carolina\b', r'\bnorth dakota\b', r'\bohio\b', r'\boklahoma\b', r'\boregon\b',
+            r'\bpennsylvania\b', r'\brhode island\b', r'\bsouth carolina\b', r'\bsouth dakota\b',
+            r'\btennessee\b', r'\btexas\b', r'\butah\b', r'\bvermont\b', r'\bvirginia\b', r'\bwashington\b',
+            r'\bwest virginia\b', r'\bwisconsin\b', r'\bwyoming\b'
         ]
         
-        has_state = any(state in text_lower for state in us_states)
+        has_state_with_license = any(bool(re.search(state, text_lower)) for state in us_states) and ('license' in text_lower or 'driver' in text_lower)
         
-        return has_indicators or has_dl_pattern or has_state
+        # Count general indicators
+        general_matches = sum(1 for indicator in general_indicators if indicator in text_lower)
+        has_multiple_general = general_matches >= 3
+        
+        return has_specific_indicators or has_dl_pattern or has_state_with_license or has_multiple_general
     
     def preprocess(self, image: np.ndarray) -> List[np.ndarray]:
         """Preprocess US driver's license image for optimal OCR"""
