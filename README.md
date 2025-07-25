@@ -1,393 +1,255 @@
 # OCR Document Scanner
 
-A production-ready, enterprise-grade document scanning and information extraction platform with advanced OCR capabilities, document classification, quality assessment, and monitoring.
+An advanced OCR (Optical Character Recognition) document scanner application that combines AI-powered document classification with specialized OCR processing for various document types. Features asynchronous processing with Celery, comprehensive API documentation, and Model Context Protocol (MCP) integration.
 
-## ✨ Key Features
+## 🚀 Features
 
-### 🔍 Advanced Document Processing
-- **Multi-Document Support**: 5+ document types with extensible architecture
-- **Smart Classification**: AI-powered document type detection
-- **Quality Assessment**: Real-time image quality analysis and recommendations
-- **High Accuracy OCR**: Multiple OCR engines with preprocessing optimization
-- **Multi-language Support**: 15+ languages including Arabic, Hindi, and European languages
+### Core Features
+- **Multi-Document Support**: Emirates ID, Aadhaar Card, Indian Driving License, Passports, US Driver's License
+- **AI-Powered Classification**: Automatic document type detection using machine learning
+- **Quality Assessment**: Image quality scoring and enhancement
+- **Batch Processing**: Handle multiple documents simultaneously with Celery
+- **Security Validation**: Document authenticity checks
+- **Real-time Processing**: WebSocket support for live updates
+- **Analytics Dashboard**: Comprehensive processing statistics and insights
 
-### 🏗️ Production-Ready Architecture
-- **Modular Processor System**: Easy addition of new document types
-- **Enhanced API**: RESTful API with v2 endpoints and comprehensive validation
-- **Monitoring & Analytics**: Prometheus metrics, performance tracking, and health checks
-- **Security**: Rate limiting, input validation, and security headers
-- **Scalable Deployment**: Docker, Docker Compose, and cloud deployment ready
+### Recent Enhancements
+- **Asynchronous Processing**: Celery integration for handling heavy workloads
+- **OpenAPI Documentation**: Interactive Swagger UI at `/api/v2/docs`
+- **MCP Integration**: Model Context Protocol servers for advanced AI capabilities
+  - Sequential Thinking MCP for step-by-step reasoning
+  - Memory MCP for persistent context storage
+  - Context7 MCP for multi-layered contextual understanding
+  - Filesystem MCP for document management
 
-### 📊 Quality & Monitoring
-- **Quality Scoring**: Automatic assessment of document image quality
-- **Performance Metrics**: Real-time processing statistics and monitoring
-- **Error Handling**: Comprehensive error tracking and user-friendly messages
-- **Rate Limiting**: Configurable API rate limiting and quotas
+## 🛠️ Technology Stack
 
-### 🎨 Enhanced User Experience
-- **Modern UI**: React-based dashboard with Material-UI components
-- **Real-time Feedback**: Quality assessments and processing confidence
-- **Camera Integration**: Live document capture with preview
-- **Responsive Design**: Mobile-friendly interface
+### Backend
+- **Flask**: Python web framework with factory pattern
+- **SQLAlchemy**: Database ORM with migrations
+- **Celery**: Distributed task queue for async processing
+- **Redis**: Message broker and caching
+- **OpenCV**: Computer vision and image processing
+- **Tesseract**: OCR engine
+- **scikit-learn**: Machine learning for document classification
+- **Flask-RESTX**: API documentation with Swagger
 
-## 🌍 Supported Documents
+### Frontend
+- **React.js**: Modern JavaScript UI library
+- **Material-UI**: React component library
+- **Recharts**: Data visualization
+- **React-Dropzone**: Drag & drop file uploads
 
-### Production Ready
-- ✅ **India**: Aadhaar Card, Driving License, Passport
-- ✅ **UAE**: Emirates ID
-- ✅ **United States**: Driver's License (All States)
+## 📋 Prerequisites
 
-### Document Capabilities
-| Document Type | Country | Extraction Fields | Confidence |
-|---------------|---------|-------------------|------------|
-| Aadhaar Card | India | Name, Number, DOB, Gender, Address, Father's Name | 95%+ |
-| Driving License | India | Name, DL Number, DOB, Address, Validity, Class | 92%+ |
-| Passport | India | Name, Number, DOB, Nationality, Issue/Expiry | 90%+ |
-| Emirates ID | UAE | Name, ID Number, Nationality, DOB, Expiry | 94%+ |
-| Driver's License | USA | Name, Number, DOB, Address, State, Expiry | 88%+ |
-
-### Coming Soon (Framework Ready)
-- 🔄 **United Kingdom**: Driving Licence, Biometric Residence Permit
-- 🔄 **Germany**: Personalausweis, Führerschein
-- 🔄 **Canada**: Driver's License (English/French)
-- 🔄 **Singapore**: NRIC
-- 🔄 **Japan**: My Number Card
-
-*[View complete API documentation](API_DOCUMENTATION.md)*
+- Python 3.8+
+- Node.js 14+
+- Redis Server
+- Tesseract OCR
+- PostgreSQL (for production)
+- Docker & Docker Compose (optional)
 
 ## 🚀 Quick Start
 
 ### Using Docker (Recommended)
+
 ```bash
-git clone https://github.com/ved-hippotechnik/ocr-document-scanner.git
+# Clone the repository
+git clone https://github.com/vedthampi/ocr-document-scanner.git
 cd ocr-document-scanner
 
-# Development environment
+# Start all services
 docker-compose up -d
 
-# Production environment
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# View logs
+docker-compose logs -f
 ```
 
-**Access Points:**
-- 🌐 Frontend: http://localhost:3000
-- 🔧 Backend API: http://localhost:5002
-- 📊 Metrics: http://localhost:5002/metrics
+The application will be available at:
+- Frontend: http://localhost:3001
+- Backend API: http://localhost:5001
+- API Documentation: http://localhost:5001/api/v2/docs
+- Flower (Celery monitoring): http://localhost:5555
 
 ### Manual Setup
 
 #### Backend Setup
 
-1. Navigate to the backend directory:
 ```bash
+# Navigate to backend directory
 cd backend
-```
 
-2. Create a virtual environment and install dependencies:
-```bash
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-3. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
+# Set environment variables
+export FLASK_ENV=development
+export SECRET_KEY=your-secret-key
+export JWT_SECRET_KEY=your-jwt-secret
+export CELERY_BROKER_URL=redis://localhost:6379/0
 
-4. Run the Flask server:
-```bash
+# Initialize database
+python -c "from app import create_app; from app.database import db; app, _ = create_app(); app.app_context().push(); db.create_all()"
+
+# Start Redis server (in a separate terminal)
+redis-server
+
+# Start Celery worker (in a separate terminal)
+celery -A app.celery_app:celery_app worker --loglevel=info
+
+# Start Celery beat scheduler (in a separate terminal)
+celery -A app.celery_app:celery_app beat --loglevel=info
+
+# Run the Flask application
 python run.py
 ```
 
-The backend server will start at http://localhost:5002
-
 #### Frontend Setup
 
-1. Navigate to the frontend directory:
 ```bash
+# Navigate to frontend directory
 cd frontend
-```
 
-2. Install dependencies and start:
-```bash
+# Install dependencies
 npm install
+
+# Start development server
 npm start
 ```
 
-The frontend will be available at http://localhost:3000
+## 📚 API Documentation
 
-## 🏗️ Architecture Overview
+Interactive API documentation is available at `/api/v2/docs` when the backend is running.
 
-### Modular Processor System
-```python
-# Example: Adding a new document processor
-class NewDocumentProcessor(DocumentProcessor):
-    def __init__(self):
-        super().__init__('Country', 'document_type')
-    
-    def detect(self, text, image=None):
-        # Document detection logic
-        return True
-    
-    def extract_info(self, text_results):
-        # Information extraction logic
-        return {'field1': 'value1'}
+### Key Endpoints
+
+- `POST /api/v2/scan` - Synchronous document processing
+- `POST /api/v2/async/scan` - Asynchronous document processing
+- `GET /api/v2/async/status/{task_id}` - Check async task status
+- `POST /api/v2/batch` - Batch document processing
+- `GET /api/v2/analytics/dashboard` - Analytics dashboard data
+- `POST /api/v2/auth/login` - User authentication
+- `GET /api/v2/health` - Service health check
+
+### Authentication
+
+The API uses JWT tokens for authentication. Include the token in the Authorization header:
+
 ```
-
-### API Endpoints
-
-#### Enhanced API v2 (Recommended)
-- `POST /api/v2/scan` - Enhanced document scanning with quality assessment
-- `POST /api/v2/classify` - Document classification only
-- `POST /api/v2/quality` - Image quality assessment
-- `GET /api/v2/stats` - Performance statistics
-- `GET /api/v2/health` - Health check with component status
-
-#### Legacy API v1
-- `POST /api/scan` - Basic document scanning
-- `GET /health` - Simple health check
-
-*[Complete API Documentation](API_DOCUMENTATION.md)*
-
-### Quality Assessment System
-The system provides real-time quality feedback:
-
-```json
-{
-  "quality_score": 0.87,
-  "issues": [
-    {
-      "type": "low_resolution",
-      "severity": "medium",
-      "description": "Image resolution could be higher"
-    }
-  ],
-  "recommendations": [
-    "Take photo in better lighting",
-    "Hold camera steady to avoid blur"
-  ]
-}
+Authorization: Bearer <your-token>
 ```
-
-## 📊 Monitoring & Analytics
-
-### Prometheus Metrics
-- Request rate and response times
-- Document type distribution
-- Quality score distribution
-- Error rates and types
-
-### Performance Monitoring
-- Processing time tracking
-- Accuracy metrics per document type
-- System resource utilization
-
-Access metrics at: `http://localhost:5002/metrics`
 
 ## 🧪 Testing
 
-### Comprehensive Test Suite
 ```bash
-# Run all tests
-python comprehensive_test_enhanced.py
+# Backend tests
+cd backend
+pytest tests/
 
-# Test specific URL
-python comprehensive_test_enhanced.py --url http://localhost:5002
+# Frontend tests
+cd frontend
+npm test
 
-# Save results
-python comprehensive_test_enhanced.py --save-results my_results.json
+# Integration tests
+./run_integration_tests.sh
 ```
 
-### Test Coverage
-- ✅ All document processors
-- ✅ API validation and error handling
-- ✅ Quality assessment
-- ✅ Rate limiting
-- ✅ Performance monitoring
-- ✅ Health checks
+## 📊 Performance Optimization
+
+- **Redis Caching**: Frequently accessed data is cached
+- **Image Preprocessing**: Automatic optimization before OCR
+- **Parallel Processing**: Celery workers for concurrent tasks
+- **Database Indexing**: Optimized queries for large datasets
+
+## 🔒 Security
+
+- JWT token authentication with refresh tokens
+- Input validation and sanitization
+- Rate limiting on API endpoints
+- CORS configuration
+- Secure file upload handling
+- Document authenticity validation
 
 ## 🚀 Deployment
 
-### Production Deployment Options
+### Environment Variables
 
-#### 1. Docker Compose (Local/Server)
+Create a `.env` file with the following variables:
+
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-```
-
-#### 2. Railway (Cloud)
-```bash
-railway up
-```
-
-#### 3. AWS/GCP/Azure
-Use the provided `Dockerfile` and deployment configurations.
-
-*[Detailed Deployment Guide](ENHANCED_DEPLOYMENT.md)*
-
-### Environment Configuration
-```bash
-# Backend (.env)
+# Flask Configuration
 FLASK_ENV=production
-SECRET_KEY=your-secret-key
-CORS_ORIGINS=https://yourdomain.com
-LOG_LEVEL=INFO
-MAX_CONTENT_LENGTH=10485760
+SECRET_KEY=your-production-secret-key
+JWT_SECRET_KEY=your-jwt-secret-key
 
-# Frontend (.env)
-REACT_APP_API_URL=https://api.yourdomain.com
-REACT_APP_ENVIRONMENT=production
+# Database
+DATABASE_URL=postgresql://user:password@host:port/dbname
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+
+# CORS
+CORS_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+
+# OCR Settings
+OCR_TIMEOUT=60
+OCR_DPI=300
+OCR_LANGUAGES=eng,ara,hin
+
+# MCP Configuration
+MCP_STORAGE_PATH=/var/lib/ocr-scanner/mcp
+MCP_MAX_MEMORY_SIZE=10000
 ```
 
-## 🔧 Configuration
+### Production Deployment
 
-### Document Processor Configuration
-```python
-# backend/app/config.py
-PROCESSORS_CONFIG = {
-    'confidence_threshold': 0.7,
-    'quality_threshold': 0.5,
-    'max_processing_time': 30,
-    'enable_caching': True
-}
-```
+1. Set up PostgreSQL database
+2. Configure Redis for caching and Celery
+3. Set secure environment variables
+4. Use Gunicorn for Flask deployment
+5. Set up Nginx as reverse proxy
+6. Configure SSL certificates
+7. Set up monitoring with Prometheus/Grafana
 
-### OCR Configuration
-```python
-OCR_CONFIG = {
-    'languages': ['eng', 'hin', 'ara'],
-    'dpi': 300,
-    'preprocessing': {
-        'denoise': True,
-        'deskew': True,
-        'enhance_contrast': True
-    }
-}
-```
+## 📈 Monitoring
 
-## 📈 Performance
-
-### Benchmark Results
-| Document Type | Avg Processing Time | Accuracy | Confidence |
-|---------------|-------------------|----------|------------|
-| Aadhaar Card | 2.1s | 95.2% | 0.94 |
-| Driving License | 2.3s | 92.8% | 0.91 |
-| Passport | 1.9s | 90.5% | 0.89 |
-| Emirates ID | 2.0s | 94.1% | 0.93 |
-
-### Optimization Features
-- Multi-threaded processing
-- Image preprocessing pipeline
-- Intelligent OCR configuration selection
-- Caching for repeated requests
-- Memory-efficient image handling
+- **Flower**: Celery task monitoring at `/flower`
+- **Health Checks**: `/api/v2/health` endpoint
+- **Prometheus Metrics**: `/metrics` endpoint
+- **Application Logs**: Structured JSON logging
 
 ## 🤝 Contributing
 
-### Adding New Document Types
-
-1. **Create Processor**:
-```python
-# backend/app/processors/new_document.py
-class NewDocumentProcessor(DocumentProcessor):
-    # Implementation
-```
-
-2. **Register Processor**:
-```python
-# backend/app/processors/registry.py
-processor_registry.register(NewDocumentProcessor())
-```
-
-3. **Add Tests**:
-```python
-# Test the new processor
-def test_new_document_processor():
-    # Test implementation
-```
-
-### Development Workflow
 1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
-*[Development Guidelines](CONTRIBUTING.md)*
-
-## 📚 Documentation
-
-- [📖 Complete API Documentation](API_DOCUMENTATION.md)
-- [🚀 Enhanced Deployment Guide](ENHANCED_DEPLOYMENT.md)
-- [🔧 Configuration Reference](CONFIG.md)
-- [🧪 Testing Guide](TESTING.md)
-- [📊 Monitoring Setup](MONITORING.md)
-
-## 🛣️ Roadmap
-
-### Version 2.1 (Next Release)
-- [ ] Advanced ML-based document classification
-- [ ] Batch processing capabilities
-- [ ] User authentication and API keys
-- [ ] Document template management
-- [ ] Advanced analytics dashboard
-
-### Version 3.0 (Future)
-- [ ] Real-time document streaming
-- [ ] Multi-language UI
-- [ ] Document verification against databases
-- [ ] Mobile SDK for native apps
-- [ ] Enterprise SSO integration
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙋‍♂️ Support
+## 🙏 Acknowledgments
 
-- **Documentation**: [API Docs](API_DOCUMENTATION.md)
-- **Issues**: [GitHub Issues](https://github.com/ved-hippotechnik/ocr-document-scanner/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ved-hippotechnik/ocr-document-scanner/discussions)
-- **Email**: support@hippotechnik.com
+- Tesseract OCR community
+- OpenCV contributors
+- Flask and React communities
+- All contributors to this project
 
-## 🌟 Star History
+## 📞 Support
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ved-hippotechnik/ocr-document-scanner&type=Date)](https://star-history.com/#ved-hippotechnik/ocr-document-scanner&Date)
+For issues and questions:
+- Create an issue on GitHub
+- Check the documentation at `/api/v2/docs`
+- Review application logs for debugging
 
 ---
 
-**Built with ❤️ by [Hippotechnik](https://hippotechnik.com)**
-        # Detection logic
-        return True/False
-    
-    def preprocess(self, image):
-        # Image enhancement
-        return processed_images
-    
-    def extract_info(self, text_results):
-        # Information extraction
-        return structured_data
-```
-
-## 📊 API Endpoints
-
-- `POST /api/scan` - Process document image
-- `GET /api/stats` - Get processing statistics  
-- `GET /health` - Health check
-- `GET /api/processors` - List supported processors
-
-## 🌐 Deployment
-
-**Production-ready deployment options:**
-
-- **Railway**: [One-click deploy](https://railway.app) *(Recommended)*
-- **Docker**: Full containerization support
-- **Traditional**: Manual deployment guide
-
-*[View detailed deployment guide](DEPLOYMENT.md)*
-
-## License
-
-MIT
+Built with ❤️ by the OCR Scanner Team
