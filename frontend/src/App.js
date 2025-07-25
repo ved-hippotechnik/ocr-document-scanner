@@ -1,10 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import Scanner from './pages/Scanner';
+import AIScanner from './components/AIScanner';
+import BatchProcessor from './components/BatchProcessor';
+import AIDashboard from './components/AIDashboard';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
+import OfflineStatus from './components/OfflineStatus';
+import UpdatePrompt from './components/UpdatePrompt';
+import { registerServiceWorker, requestNotificationPermission } from './utils/pwaUtils';
 import './App.css';
 
 // Apple-inspired theme
@@ -152,6 +159,29 @@ const theme = createTheme({
 });
 
 function App() {
+  useEffect(() => {
+    // Initialize PWA features
+    const initializePWA = async () => {
+      try {
+        // Register service worker
+        await registerServiceWorker();
+        console.log('PWA initialized successfully');
+        
+        // Request notification permission after a delay
+        setTimeout(async () => {
+          const hasPermission = await requestNotificationPermission();
+          if (hasPermission) {
+            console.log('Notification permission granted');
+          }
+        }, 5000);
+      } catch (error) {
+        console.error('PWA initialization failed:', error);
+      }
+    };
+
+    initializePWA();
+  }, []);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -162,8 +192,16 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/scanner" element={<Scanner />} />
+              <Route path="/ai-scanner" element={<AIScanner />} />
+              <Route path="/batch-processor" element={<BatchProcessor />} />
+              <Route path="/ai-dashboard" element={<AIDashboard />} />
             </Routes>
           </div>
+          
+          {/* PWA Components */}
+          <PWAInstallPrompt />
+          <OfflineStatus />
+          <UpdatePrompt />
         </div>
       </Router>
     </ThemeProvider>

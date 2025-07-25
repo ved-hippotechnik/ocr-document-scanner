@@ -352,3 +352,238 @@ class PerformanceMonitor:
         
         # Here you could send metrics to external monitoring service
         # e.g., StatsD, Prometheus, etc.
+
+def validate_email(email: str) -> bool:
+    """Validate email format"""
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_pattern, email) is not None
+
+def validate_password(password: str) -> dict:
+    """Validate password strength"""
+    if len(password) < 8:
+        return {'valid': False, 'message': 'Password must be at least 8 characters long'}
+    
+    if len(password) > 128:
+        return {'valid': False, 'message': 'Password must be less than 128 characters long'}
+    
+    if not any(c.isupper() for c in password):
+        return {'valid': False, 'message': 'Password must contain at least one uppercase letter'}
+    
+    if not any(c.islower() for c in password):
+        return {'valid': False, 'message': 'Password must contain at least one lowercase letter'}
+    
+    if not any(c.isdigit() for c in password):
+        return {'valid': False, 'message': 'Password must contain at least one number'}
+    
+    if not any(c in '!@#$%^&*(),.?":{}|<>' for c in password):
+        return {'valid': False, 'message': 'Password must contain at least one special character'}
+    
+    return {'valid': True, 'message': 'Password is valid'}
+
+def sanitize_input(text: str) -> str:
+    """Sanitize user input"""
+    if not text:
+        return ''
+    
+    # Remove potential script tags and other dangerous content
+    import re
+    text = re.sub(r'<[^>]*>', '', text)  # Remove HTML tags
+    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)  # Remove javascript:
+    text = re.sub(r'vbscript:', '', text, flags=re.IGNORECASE)  # Remove vbscript:
+    text = re.sub(r'onload=', '', text, flags=re.IGNORECASE)  # Remove onload
+    text = re.sub(r'onerror=', '', text, flags=re.IGNORECASE)  # Remove onerror
+    
+    return text.strip()
+
+def validate_json_input(data: dict) -> dict:
+    """
+    Validate JSON input data
+    
+    Args:
+        data: JSON data to validate
+        
+    Returns:
+        Dictionary with validation results
+    """
+    try:
+        if not isinstance(data, dict):
+            return {
+                'valid': False,
+                'error': 'Invalid data format. Expected JSON object.'
+            }
+        
+        # Basic validation - can be extended based on specific requirements
+        if not data:
+            return {
+                'valid': False,
+                'error': 'Empty data provided'
+            }
+        
+        # Check for required fields if any
+        # Add specific validation logic here as needed
+        
+        return {
+            'valid': True,
+            'data': data
+        }
+    
+    except Exception as e:
+        return {
+            'valid': False,
+            'error': f'Validation error: {str(e)}'
+        }
+
+def validate_file_upload(file_content: bytes, allowed_extensions: List[str] = None) -> dict:
+    """Validate uploaded file content"""
+    if not file_content:
+        return {'valid': False, 'message': 'File content is empty'}
+    
+    # Check file size
+    if len(file_content) > 10 * 1024 * 1024:  # 10MB
+        return {'valid': False, 'message': 'File size exceeds maximum allowed size (10MB)'}
+    
+    # Check for malicious content patterns
+    malicious_patterns = [
+        b'<?php',
+        b'<script',
+        b'javascript:',
+        b'vbscript:',
+        b'data:text/html',
+        b'<iframe',
+        b'<object',
+        b'<embed'
+    ]
+    
+    content_lower = file_content.lower()
+    for pattern in malicious_patterns:
+        if pattern in content_lower:
+            return {'valid': False, 'message': 'File contains potentially malicious content'}
+    
+    # Validate file signature (magic bytes)
+    magic_bytes = {
+        'jpeg': [b'\xFF\xD8\xFF'],
+        'png': [b'\x89PNG\r\n\x1a\n'],
+        'gif': [b'GIF87a', b'GIF89a'],
+        'webp': [b'RIFF', b'WEBP']
+    }
+    
+    if allowed_extensions:
+        valid_signature = False
+        for ext in allowed_extensions:
+            if ext.lower() in magic_bytes:
+                for signature in magic_bytes[ext.lower()]:
+                    if file_content.startswith(signature):
+                        valid_signature = True
+                        break
+        
+        if not valid_signature:
+            return {'valid': False, 'message': 'File signature does not match allowed file types'}
+    
+    return {'valid': True, 'message': 'File is valid'}
+
+class SecurityValidator:
+    """Security validation utilities"""
+    
+    @staticmethod
+    def validate_sql_injection(text: str) -> bool:
+        """Check for potential SQL injection patterns"""
+        if not text:
+            return True
+        
+        sql_patterns = [
+            r"(?i)(union|select|insert|delete|update|drop|create|alter|exec|execute)",
+            r"(?i)(or|and)\s+\d+\s*=\s*\d+",
+            r"(?i)(or|and)\s+\w+\s*=\s*\w+",
+            r"(?i)(\-\-|\#|\/\*|\*\/)",
+            r"(?i)(xp_|sp_|fn_)"
+        ]
+        
+        import re
+        for pattern in sql_patterns:
+            if re.search(pattern, text):
+                return False
+        
+        return True
+    
+    @staticmethod
+    def validate_xss(text: str) -> bool:
+        """Check for potential XSS patterns"""
+        if not text:
+            return True
+        
+        xss_patterns = [
+            r"(?i)<script[^>]*>.*?</script>",
+            r"(?i)javascript:",
+            r"(?i)vbscript:",
+            r"(?i)onload\s*=",
+            r"(?i)onerror\s*=",
+            r"(?i)onclick\s*=",
+            r"(?i)onmouseover\s*=",
+            r"(?i)<iframe[^>]*>",
+            r"(?i)<object[^>]*>",
+            r"(?i)<embed[^>]*>"
+        ]
+        
+        import re
+        for pattern in xss_patterns:
+            if re.search(pattern, text):
+                return False
+        
+        return True
+    
+    @staticmethod
+    def validate_path_traversal(path: str) -> bool:
+        """Check for path traversal patterns"""
+        if not path:
+            return True
+        
+        dangerous_patterns = [
+            '../',
+            '..\\',
+            '..%2f',
+            '..%5c',
+            '%2e%2e%2f',
+            '%2e%2e%5c'
+        ]
+        
+        path_lower = path.lower()
+        for pattern in dangerous_patterns:
+            if pattern in path_lower:
+                return False
+        
+        return True
+
+class InputSanitizer:
+    """Advanced input sanitization"""
+    
+    @staticmethod
+    def sanitize_filename(filename: str) -> str:
+        """Sanitize filename for safe storage"""
+        if not filename:
+            return 'unnamed_file'
+        
+        import re
+        # Remove path separators and dangerous characters
+        filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        filename = re.sub(r'\.+', '.', filename)  # Replace multiple dots with single dot
+        filename = filename.strip('.')  # Remove leading/trailing dots
+        
+        # Limit length
+        if len(filename) > 255:
+            name, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
+            filename = name[:250] + ('.' + ext if ext else '')
+        
+        return filename or 'unnamed_file'
+    
+    @staticmethod
+    def sanitize_json_data(data: dict) -> dict:
+        """Recursively sanitize JSON data"""
+        if isinstance(data, dict):
+            return {key: InputSanitizer.sanitize_json_data(value) for key, value in data.items()}
+        elif isinstance(data, list):
+            return [InputSanitizer.sanitize_json_data(item) for item in data]
+        elif isinstance(data, str):
+            return sanitize_input(data)
+        else:
+            return data

@@ -14,6 +14,7 @@ class ScanHistory(db.Model):
     __tablename__ = 'scan_history'
     
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
     session_id = db.Column(db.String(255), nullable=False, index=True)
     document_type = db.Column(db.String(100), nullable=False)
     document_subtype = db.Column(db.String(100))
@@ -22,17 +23,30 @@ class ScanHistory(db.Model):
     processing_time = db.Column(db.Float)
     file_size = db.Column(db.Integer)
     file_format = db.Column(db.String(10))
+    filename = db.Column(db.String(255))
     extracted_data = db.Column(db.Text)  # JSON string
     error_message = db.Column(db.Text)
     ip_address = db.Column(db.String(45))
     user_agent = db.Column(db.String(500))
+    status = db.Column(db.String(50), default='pending')  # pending, processing, completed, failed, cancelled
+    task_id = db.Column(db.String(255), index=True)  # Celery task ID
+    batch_job_id = db.Column(db.Integer, db.ForeignKey('batch_processing_jobs.id'))
+    validation_status = db.Column(db.String(50))  # valid, invalid, partial
+    validation_errors = db.Column(db.Text)  # JSON string
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    # Relationships
+    user = db.relationship('User', backref='scans')
+    batch_job = db.relationship('BatchProcessingJob', backref='scans')
     
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
         return {
             'id': self.id,
+            'user_id': self.user_id,
             'session_id': self.session_id,
             'document_type': self.document_type,
             'document_subtype': self.document_subtype,
@@ -41,8 +55,16 @@ class ScanHistory(db.Model):
             'processing_time': self.processing_time,
             'file_size': self.file_size,
             'file_format': self.file_format,
+            'filename': self.filename,
             'extracted_data': json.loads(self.extracted_data) if self.extracted_data else None,
             'error_message': self.error_message,
+            'status': self.status,
+            'task_id': self.task_id,
+            'batch_job_id': self.batch_job_id,
+            'validation_status': self.validation_status,
+            'validation_errors': json.loads(self.validation_errors) if self.validation_errors else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -79,6 +101,55 @@ class DocumentTypeStats(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+
+class BatchProcessingJob(db.Model):
+    """Model for batch processing jobs"""
+    __tablename__ = 'batch_processing_jobs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    job_name = db.Column(db.String(255))
+    total_documents = db.Column(db.Integer, nullable=False)
+    processed_documents = db.Column(db.Integer, default=0)
+    successful_count = db.Column(db.Integer, default=0)
+    failed_count = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(50), default='queued')  # queued, processing, completed, failed, cancelled
+    task_id = db.Column(db.String(255), index=True)  # Celery task ID
+    priority = db.Column(db.Integer, default=0)  # Higher number = higher priority
+    processing_time = db.Column(db.Float)
+    error_message = db.Column(db.Text)
+    metadata = db.Column(db.Text)  # JSON string for additional data
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    # Relationships
+    user = db.relationship('User', backref='batch_jobs')
+    
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'job_name': self.job_name,
+            'total_documents': self.total_documents,
+            'processed_documents': self.processed_documents,
+            'successful_count': self.successful_count,
+            'failed_count': self.failed_count,
+            'status': self.status,
+            'task_id': self.task_id,
+            'priority': self.priority,
+            'processing_time': self.processing_time,
+            'error_message': self.error_message,
+            'metadata': json.loads(self.metadata) if self.metadata else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
 
 class SystemMetrics(db.Model):
     """Model for storing system performance metrics"""

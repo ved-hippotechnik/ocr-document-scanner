@@ -1,0 +1,127 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+backend/venv/
+
+# Flask
+instance/
+.webassets-cache
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/node_modules/
+frontend/build/
+
+# React
+frontend/.cache/
+frontend/node_modules/.cache/
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+backend/logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+backend/ocr_scanner.db
+
+# Uploads
+uploads/
+backend/uploads/
+
+# Models
+models/
+backend/models/
+
+# Analytics
+analytics_charts/
+analytics_report_*.json
+
+# Cache
+*.cache
+backend/app/__pycache__/
+backend/app/**/__pycache__/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+*.cover
+.hypothesis/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+celery_data/
+
+# MCP Storage
+mcp_storage/
+
+# Misc
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Generated files
+*.png
+*.jpg
+*.jpeg
+enhanced_*.png
+preprocessing_*.png
+
+# Temporary test files
+test_*.py
+*_test.py
+*_demo.py
+simple_*.json
+final_*.json
+enhanced_*.json

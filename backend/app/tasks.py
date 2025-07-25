@@ -1,415 +1,490 @@
 """
-Celery configuration and background tasks for OCR Document Scanner
+Celery tasks for async processing
 """
-from celery import Celery
+
 import os
-import logging
-from datetime import datetime, timezone
 import json
+import base64
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+from celery import current_task, group, chain
+from celery.exceptions import SoftTimeLimitExceeded
+from sqlalchemy import and_
 
-# Celery configuration
-def make_celery(app):
-    """Create and configure Celery instance"""
-    celery = Celery(
-        app.import_name,
-        backend=os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0'),
-        broker=os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+from .celery_app import celery_app
+from .database import db, ScanHistory, BatchProcessingJob
+from .processors import processor_registry
+from .classification import DocumentClassifier
+from .quality import QualityAnalyzer
+from .validation import EnhancedValidator
+from .cache import get_cache_manager
+from .mcp.sequential_thinking import SequentialThinkingMCP, ThinkingStage, ThoughtStep
+from .mcp.memory import MemoryMCP
+from .mcp.filesystem import FilesystemMCP
+
+logger = logging.getLogger(__name__)
+
+# Initialize services (will be properly initialized with app context)
+classifier = None
+quality_analyzer = None
+validator = None
+cache_manager = None
+sequential_thinking_mcp = None
+memory_mcp = None
+filesystem_mcp = None
+
+
+def init_task_services(app):
+    """Initialize services for tasks"""
+    global classifier, quality_analyzer, validator, cache_manager
+    global sequential_thinking_mcp, memory_mcp, filesystem_mcp
+    
+    classifier = DocumentClassifier()
+    quality_analyzer = QualityAnalyzer()
+    validator = EnhancedValidator()
+    cache_manager = get_cache_manager()
+    
+    # Initialize MCP services
+    sequential_thinking_mcp = SequentialThinkingMCP()
+    memory_mcp = MemoryMCP(
+        max_memory_size=app.config.get('MCP_MAX_MEMORY_SIZE', 10000),
+        persistence_path=app.config.get('MCP_MEMORY_PERSISTENCE_PATH')
     )
-    
-    # Update configuration from Flask app
-    celery.conf.update(
-        task_serializer='json',
-        accept_content=['json'],
-        result_serializer='json',
-        timezone='UTC',
-        enable_utc=True,
-        result_expires=3600,  # Results expire after 1 hour
-        task_soft_time_limit=300,  # 5 minutes soft limit
-        task_time_limit=600,  # 10 minutes hard limit
-        worker_prefetch_multiplier=1,
-        task_acks_late=True,
-        worker_disable_rate_limits=False,
-        task_compression='gzip',
-        result_compression='gzip'
+    filesystem_mcp = FilesystemMCP(
+        base_path=app.config.get('MCP_STORAGE_PATH', 'mcp_storage')
     )
-    
-    # Configure task routes
-    celery.conf.task_routes = {
-        'app.tasks.process_document_async': {'queue': 'document_processing'},
-        'app.tasks.process_batch_documents': {'queue': 'batch_processing'},
-        'app.tasks.cleanup_old_files': {'queue': 'maintenance'},
-        'app.tasks.generate_analytics_report': {'queue': 'analytics'}
-    }
-    
-    class ContextTask(celery.Task):
-        """Make celery tasks work with Flask app context"""
-        def __call__(self, *args, **kwargs):
-            with app.app_context():
-                return self.run(*args, **kwargs)
-    
-    celery.Task = ContextTask
-    return celery
 
-# Initialize Celery (to be called from app factory)
-celery = None
 
-def init_celery(app):
-    """Initialize Celery with Flask app"""
-    global celery
-    celery = make_celery(app)
-    return celery
-
-# Create a dummy Celery instance for task decoration
-# This will be replaced by the real instance in init_celery
-celery = Celery('dummy')
-
-# Background Tasks
-@celery.task(bind=True, name='app.tasks.process_document_async')
-def process_document_async(self, image_data, document_type=None, options=None):
+@celery_app.task(bind=True, name='app.tasks.process_document_async')
+def process_document_async(self, scan_id: int, image_data: str, 
+                          document_type: Optional[str] = None) -> Dict[str, Any]:
     """
-    Process document asynchronously
+    Asynchronously process a document with OCR
     
     Args:
+        scan_id: Database ID of the scan record
         image_data: Base64 encoded image data
         document_type: Optional document type hint
-        options: Processing options
     
     Returns:
-        dict: Processing result with job information
+        Processing result dictionary
     """
     try:
-        from .processors import processor_registry
-        from .classification import document_classifier
-        from .quality import quality_analyzer
-        from .database import log_scan_result
-        import base64
-        import cv2
-        import numpy as np
-        from PIL import Image
-        import io
-        import time
-        import uuid
+        # Update task state
+        self.update_state(state='PROCESSING', meta={'stage': 'initialization'})
         
-        start_time = time.time()
-        task_id = self.request.id
+        # Get scan record
+        scan = ScanHistory.query.get(scan_id)
+        if not scan:
+            raise ValueError(f"Scan record {scan_id} not found")
         
-        # Update task status
-        self.update_state(
-            state='PROCESSING',
-            meta={'status': 'Decoding image data', 'progress': 10}
-        )
+        # Update scan status
+        scan.status = 'processing'
+        scan.started_at = datetime.utcnow()
+        db.session.commit()
         
         # Decode image
+        self.update_state(state='PROCESSING', meta={'stage': 'decoding_image'})
         try:
             image_bytes = base64.b64decode(image_data)
-            image = Image.open(io.BytesIO(image_bytes))
-            image_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         except Exception as e:
-            raise Exception(f"Failed to decode image: {str(e)}")
-        
-        # Update progress
-        self.update_state(
-            state='PROCESSING',
-            meta={'status': 'Analyzing image quality', 'progress': 25}
-        )
+            raise ValueError(f"Failed to decode image: {str(e)}")
         
         # Quality analysis
-        quality_result = quality_analyzer.analyze_quality(image_array)
-        
-        # Update progress
-        self.update_state(
-            state='PROCESSING',
-            meta={'status': 'Classifying document type', 'progress': 40}
-        )
+        self.update_state(state='PROCESSING', meta={'stage': 'quality_analysis'})
+        quality_result = quality_analyzer.analyze_image_quality(image_bytes)
+        scan.quality_score = quality_result['overall_score']
         
         # Document classification
-        classification_result = document_classifier.classify_document(image_array)
+        self.update_state(state='PROCESSING', meta={'stage': 'classification'})
+        if not document_type:
+            classification_result = classifier.classify_document(image_bytes)
+            document_type = classification_result['document_type']
+            scan.confidence_score = classification_result['confidence']
         
-        # Update progress
-        self.update_state(
-            state='PROCESSING',
-            meta={'status': 'Processing document', 'progress': 60}
+        scan.document_type = document_type
+        db.session.commit()
+        
+        # Process with appropriate processor
+        self.update_state(state='PROCESSING', meta={'stage': 'ocr_processing'})
+        processor = processor_registry.get_processor(document_type)
+        
+        if not processor:
+            raise ValueError(f"No processor available for document type: {document_type}")
+        
+        # Perform OCR
+        ocr_result = processor.process(image_bytes)
+        
+        # Validation
+        self.update_state(state='PROCESSING', meta={'stage': 'validation'})
+        validation_result = validator.validate_extracted_data(
+            ocr_result['data'], 
+            document_type
         )
         
-        # Document processing
-        result = {}
-        processor_used = None
+        # Cache result
+        cache_key = f"ocr_result:{scan_id}"
+        cache_manager.set(cache_key, {
+            'ocr_result': ocr_result,
+            'quality': quality_result,
+            'validation': validation_result
+        }, ttl=3600)
         
-        if classification_result['document_type'] != 'unknown':
-            processor = processor_registry.get_processor(classification_result['document_type'])
-            if processor:
-                processing_result = processor.process_document(image_array)
-                result.update(processing_result)
-                processor_used = processor.__class__.__name__
-        elif document_type:
-            processor = processor_registry.get_processor(document_type)
-            if processor:
-                processing_result = processor.process_document(image_array)
-                result.update(processing_result)
-                processor_used = processor.__class__.__name__
+        # Update scan record
+        scan.extracted_data = json.dumps(ocr_result['data'])
+        scan.validation_status = 'valid' if validation_result['is_valid'] else 'invalid'
+        scan.validation_errors = json.dumps(validation_result.get('errors', []))
+        scan.completed_at = datetime.utcnow()
+        scan.status = 'completed'
+        scan.processing_time = (scan.completed_at - scan.started_at).total_seconds()
         
-        # Update progress
-        self.update_state(
-            state='PROCESSING',
-            meta={'status': 'Finalizing results', 'progress': 80}
+        db.session.commit()
+        
+        # Store in MCP memory for future reference
+        memory_mcp.store_memory(
+            content={
+                'document_type': document_type,
+                'quality_score': quality_result['overall_score'],
+                'validation_status': validation_result['is_valid']
+            },
+            context={'scan_id': scan_id, 'task_id': self.request.id},
+            tags=['ocr_processing', document_type, f"scan_{scan_id}"],
+            importance=0.7
         )
         
-        # Combine results
-        processing_time = time.time() - start_time
-        final_result = {
-            'task_id': task_id,
-            'document_type': result.get('document_type', classification_result['document_type']),
-            'confidence': result.get('confidence', classification_result['confidence']),
-            'extracted_data': result.get('extracted_data', {}),
-            'quality_assessment': quality_result,
-            'classification_result': classification_result,
-            'processor_used': processor_used,
-            'processing_time': round(processing_time, 3),
-            'status': 'completed',
-            'timestamp': datetime.now(timezone.utc).isoformat()
+        return {
+            'success': True,
+            'scan_id': scan_id,
+            'document_type': document_type,
+            'extracted_data': ocr_result['data'],
+            'quality_score': quality_result['overall_score'],
+            'validation': validation_result,
+            'processing_time': scan.processing_time
         }
         
-        # Log to database
-        try:
-            session_id = options.get('session_id', str(uuid.uuid4())) if options else str(uuid.uuid4())
-            log_scan_result(
-                session_id=session_id,
-                document_type=final_result['document_type'],
-                result_data=final_result,
-                processing_time=processing_time,
-                file_info={'size': len(image_data), 'format': 'base64'},
-                request_info={'ip': 'async_task', 'user_agent': 'Celery Worker'}
-            )
-        except Exception as e:
-            logging.error(f"Failed to log async task result: {str(e)}")
-        
-        # Update progress to completed
-        self.update_state(
-            state='SUCCESS',
-            meta={'status': 'Completed successfully', 'progress': 100, 'result': final_result}
-        )
-        
-        return final_result
+    except SoftTimeLimitExceeded:
+        logger.error(f"Task timeout for scan {scan_id}")
+        if scan:
+            scan.status = 'timeout'
+            scan.error_message = "Processing timeout exceeded"
+            db.session.commit()
+        raise
         
     except Exception as e:
-        error_msg = str(e)
-        logging.error(f"Async document processing failed: {error_msg}")
-        
-        self.update_state(
-            state='FAILURE',
-            meta={
-                'status': 'Failed',
-                'error': error_msg,
-                'progress': 0,
-                'timestamp': datetime.now(timezone.utc).isoformat()
-            }
-        )
-        
-        raise Exception(error_msg)
+        logger.error(f"Error processing scan {scan_id}: {str(e)}")
+        if scan:
+            scan.status = 'failed'
+            scan.error_message = str(e)
+            scan.completed_at = datetime.utcnow()
+            db.session.commit()
+        raise
 
-@celery.task(bind=True, name='app.tasks.process_batch_documents')
-def process_batch_documents(self, batch_data):
+
+@celery_app.task(bind=True, name='app.tasks.batch_process_async')
+def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[str, Any]:
     """
     Process multiple documents in batch
     
     Args:
-        batch_data: List of document data with image_data and metadata
+        job_id: Batch job ID
+        image_data_list: List of base64 encoded images
     
     Returns:
-        dict: Batch processing results
+        Batch processing results
     """
     try:
-        batch_id = self.request.id
-        total_documents = len(batch_data)
-        results = []
-        errors = []
+        # Update job status
+        job = BatchProcessingJob.query.get(job_id)
+        if not job:
+            raise ValueError(f"Batch job {job_id} not found")
         
-        self.update_state(
-            state='PROCESSING',
-            meta={
-                'status': f'Processing batch of {total_documents} documents',
-                'progress': 0,
-                'completed': 0,
-                'total': total_documents
-            }
+        job.status = 'processing'
+        job.started_at = datetime.utcnow()
+        db.session.commit()
+        
+        # Create individual scan records
+        scan_ids = []
+        for idx, image_data in enumerate(image_data_list):
+            scan = ScanHistory(
+                user_id=job.user_id,
+                filename=f"batch_{job_id}_doc_{idx + 1}",
+                status='pending',
+                batch_job_id=job_id
+            )
+            db.session.add(scan)
+            db.session.flush()
+            scan_ids.append(scan.id)
+        
+        db.session.commit()
+        
+        # Create subtasks for parallel processing
+        job_group = group(
+            process_document_async.s(scan_id, image_data)
+            for scan_id, image_data in zip(scan_ids, image_data_list)
         )
         
-        for i, doc_data in enumerate(batch_data):
-            try:
-                # Process individual document
-                doc_result = process_document_async.apply_async(
-                    args=[doc_data['image_data'], doc_data.get('document_type'), doc_data.get('options')]
-                ).get(timeout=300)  # 5 minute timeout per document
-                
-                results.append({
-                    'index': i,
-                    'filename': doc_data.get('filename', f'document_{i}'),
-                    'result': doc_result,
-                    'status': 'success'
-                })
-                
-            except Exception as e:
-                error_info = {
-                    'index': i,
-                    'filename': doc_data.get('filename', f'document_{i}'),
-                    'error': str(e),
-                    'status': 'error'
-                }
-                errors.append(error_info)
-                results.append(error_info)
+        # Execute subtasks
+        result = job_group.apply_async()
+        
+        # Wait for completion
+        results = result.get(timeout=300)  # 5 minute timeout
+        
+        # Update job status
+        successful = sum(1 for r in results if r.get('success', False))
+        failed = len(results) - successful
+        
+        job.completed_at = datetime.utcnow()
+        job.successful_count = successful
+        job.failed_count = failed
+        job.status = 'completed'
+        job.processing_time = (job.completed_at - job.started_at).total_seconds()
+        
+        db.session.commit()
+        
+        return {
+            'success': True,
+            'job_id': job_id,
+            'total_documents': len(image_data_list),
+            'successful': successful,
+            'failed': failed,
+            'results': results
+        }
+        
+    except Exception as e:
+        logger.error(f"Batch processing error for job {job_id}: {str(e)}")
+        if job:
+            job.status = 'failed'
+            job.error_message = str(e)
+            job.completed_at = datetime.utcnow()
+            db.session.commit()
+        raise
+
+
+@celery_app.task(name='app.tasks.generate_analytics_async')
+def generate_analytics_async(user_id: Optional[int] = None, 
+                           days: int = 30) -> Dict[str, Any]:
+    """
+    Generate analytics report asynchronously
+    
+    Args:
+        user_id: Optional user ID for user-specific analytics
+        days: Number of days to include in report
+    
+    Returns:
+        Analytics report data
+    """
+    try:
+        from .analytics_dashboard import AnalyticsDashboard
+        dashboard = AnalyticsDashboard()
+        
+        # Calculate date range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Generate comprehensive analytics
+        analytics_data = {
+            'date_range': {
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat()
+            },
+            'processing_stats': dashboard.get_processing_stats(start_date, end_date, user_id),
+            'document_distribution': dashboard.get_document_distribution(start_date, end_date, user_id),
+            'quality_metrics': dashboard.get_quality_metrics(start_date, end_date, user_id),
+            'performance_trends': dashboard.get_performance_trends(start_date, end_date, user_id),
+            'error_analysis': dashboard.get_error_analysis(start_date, end_date, user_id),
+            'user_activity': dashboard.get_user_activity(start_date, end_date) if not user_id else None
+        }
+        
+        # Store report
+        report_filename = f"analytics_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        filesystem_mcp.write_file(
+            f"reports/{report_filename}",
+            json.dumps(analytics_data, indent=2),
+            metadata={'user_id': user_id, 'days': days}
+        )
+        
+        # Cache report
+        cache_key = f"analytics_report:{user_id or 'global'}:{days}"
+        cache_manager.set(cache_key, analytics_data, ttl=3600)
+        
+        return {
+            'success': True,
+            'report_file': report_filename,
+            'data': analytics_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Analytics generation error: {str(e)}")
+        raise
+
+
+@celery_app.task(name='app.tasks.cleanup_old_files_async')
+def cleanup_old_files_async(days_to_keep: int = 30) -> Dict[str, Any]:
+    """
+    Clean up old files and database records
+    
+    Args:
+        days_to_keep: Number of days to retain files
+    
+    Returns:
+        Cleanup summary
+    """
+    try:
+        cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+        
+        # Clean up database records
+        old_scans = ScanHistory.query.filter(
+            ScanHistory.created_at < cutoff_date
+        ).all()
+        
+        deleted_scans = len(old_scans)
+        for scan in old_scans:
+            db.session.delete(scan)
+        
+        # Clean up batch jobs
+        old_jobs = BatchProcessingJob.query.filter(
+            BatchProcessingJob.created_at < cutoff_date
+        ).all()
+        
+        deleted_jobs = len(old_jobs)
+        for job in old_jobs:
+            db.session.delete(job)
+        
+        db.session.commit()
+        
+        # Clean up filesystem
+        files = filesystem_mcp.list_directory("", recursive=True)
+        deleted_files = 0
+        
+        for file_info in files:
+            if file_info.created < cutoff_date:
+                if filesystem_mcp.delete_file(file_info.path):
+                    deleted_files += 1
+        
+        # Clear old cache entries
+        cache_manager.clear_expired()
+        
+        return {
+            'success': True,
+            'deleted_scans': deleted_scans,
+            'deleted_jobs': deleted_jobs,
+            'deleted_files': deleted_files,
+            'cutoff_date': cutoff_date.isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Cleanup error: {str(e)}")
+        raise
+
+
+@celery_app.task(bind=True, name='app.tasks.process_with_mcp_thinking')
+def process_with_mcp_thinking(self, document_id: int, requirements: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process document using MCP Sequential Thinking for complex workflows
+    
+    Args:
+        document_id: Document ID to process
+        requirements: Processing requirements and context
+    
+    Returns:
+        Processing results with thinking trace
+    """
+    try:
+        # Create thinking context
+        session_id = sequential_thinking_mcp.create_context(
+            goal=f"Process document {document_id} with requirements",
+            metadata={'document_id': document_id, 'requirements': requirements}
+        )
+        
+        # Add analysis step
+        sequential_thinking_mcp.add_step(session_id, ThoughtStep(
+            step_id="analyze_doc",
+            stage=ThinkingStage.ANALYSIS,
+            description="Analyze document and requirements",
+            input_data={
+                'document_id': document_id,
+                'requirements': requirements
+            }
+        ))
+        
+        # Add planning step
+        sequential_thinking_mcp.add_step(session_id, ThoughtStep(
+            step_id="plan_processing",
+            stage=ThinkingStage.PLANNING,
+            description="Plan processing approach",
+            input_data={},
+            dependencies=["analyze_doc"]
+        ))
+        
+        # Process steps
+        thinking_trace = []
+        while True:
+            step = sequential_thinking_mcp.process_next_step(session_id)
+            if not step:
+                break
             
-            # Update progress
-            progress = int((i + 1) / total_documents * 100)
+            thinking_trace.append({
+                'step': step.step_id,
+                'stage': step.stage.value,
+                'status': step.status,
+                'output': step.output_data
+            })
+            
+            # Update task progress
             self.update_state(
                 state='PROCESSING',
                 meta={
-                    'status': f'Processed {i + 1}/{total_documents} documents',
-                    'progress': progress,
-                    'completed': i + 1,
-                    'total': total_documents,
-                    'errors': len(errors)
+                    'thinking_stage': step.stage.value,
+                    'current_step': step.step_id
                 }
             )
         
-        # Final result
-        batch_result = {
-            'batch_id': batch_id,
-            'total_documents': total_documents,
-            'successful': total_documents - len(errors),
-            'failed': len(errors),
-            'results': results,
-            'errors': errors,
-            'status': 'completed',
-            'timestamp': datetime.now(timezone.utc).isoformat()
+        # Get final thinking trace
+        final_trace = sequential_thinking_mcp.export_thinking_trace(session_id)
+        
+        return {
+            'success': True,
+            'session_id': session_id,
+            'thinking_trace': final_trace,
+            'result': thinking_trace[-1]['output'] if thinking_trace else None
         }
         
-        self.update_state(
-            state='SUCCESS',
-            meta={
-                'status': 'Batch processing completed',
-                'progress': 100,
-                'result': batch_result
-            }
-        )
-        
-        return batch_result
-        
     except Exception as e:
-        error_msg = str(e)
-        logging.error(f"Batch processing failed: {error_msg}")
-        
-        self.update_state(
-            state='FAILURE',
-            meta={
-                'status': 'Batch processing failed',
-                'error': error_msg,
-                'progress': 0,
-                'timestamp': datetime.now(timezone.utc).isoformat()
-            }
-        )
-        
-        raise Exception(error_msg)
+        logger.error(f"MCP thinking error: {str(e)}")
+        raise
 
-@celery.task(name='app.tasks.cleanup_old_files')
-def cleanup_old_files():
-    """Clean up old uploaded files and temp data"""
-    try:
-        import os
-        import shutil
-        from datetime import timedelta
-        
-        upload_dir = os.getenv('UPLOAD_FOLDER', '/app/uploads')
-        max_age_days = int(os.getenv('FILE_CLEANUP_DAYS', 7))
-        cutoff_time = datetime.now(timezone.utc) - timedelta(days=max_age_days)
-        
-        cleaned_count = 0
-        total_size_freed = 0
-        
-        if os.path.exists(upload_dir):
-            for filename in os.listdir(upload_dir):
-                file_path = os.path.join(upload_dir, filename)
-                if os.path.isfile(file_path):
-                    file_mtime = datetime.fromtimestamp(
-                        os.path.getmtime(file_path), 
-                        tz=timezone.utc
-                    )
-                    
-                    if file_mtime < cutoff_time:
-                        file_size = os.path.getsize(file_path)
-                        os.remove(file_path)
-                        cleaned_count += 1
-                        total_size_freed += file_size
-        
-        # Clean up old database records
-        from .database import ScanHistory, db
-        old_records = ScanHistory.query.filter(
-            ScanHistory.created_at < cutoff_time
-        ).count()
-        
-        if old_records > 0:
-            ScanHistory.query.filter(
-                ScanHistory.created_at < cutoff_time
-            ).delete()
-            db.session.commit()
-        
-        result = {
-            'files_cleaned': cleaned_count,
-            'space_freed_mb': round(total_size_freed / (1024 * 1024), 2),
-            'old_records_removed': old_records,
-            'cleanup_date': datetime.now(timezone.utc).isoformat()
-        }
-        
-        logging.info(f"Cleanup completed: {result}")
-        return result
-        
-    except Exception as e:
-        error_msg = f"Cleanup task failed: {str(e)}"
-        logging.error(error_msg)
-        raise Exception(error_msg)
 
-@celery.task(name='app.tasks.generate_analytics_report')
-def generate_analytics_report(days=30):
-    """Generate analytics report for the specified period"""
-    try:
-        from .database import get_analytics_data
-        
-        report_data = get_analytics_data(days)
-        
-        # Add additional computed metrics
-        summary = report_data['summary']
-        
-        # Calculate trends (simplified)
-        report_data['insights'] = {
-            'performance_grade': 'A' if summary['success_rate'] > 90 else 'B' if summary['success_rate'] > 80 else 'C',
-            'avg_processing_speed': 'Fast' if summary['average_processing_time'] < 2 else 'Medium' if summary['average_processing_time'] < 5 else 'Slow',
-            'confidence_level': 'High' if summary['average_confidence'] > 0.8 else 'Medium' if summary['average_confidence'] > 0.6 else 'Low',
-            'most_processed_type': max(report_data['document_types'], key=lambda x: x['count'])['type'] if report_data['document_types'] else 'None'
-        }
-        
-        report_data['report_generated'] = datetime.now(timezone.utc).isoformat()
-        
-        logging.info(f"Analytics report generated for {days} days")
-        return report_data
-        
-    except Exception as e:
-        error_msg = f"Analytics report generation failed: {str(e)}"
-        logging.error(error_msg)
-        raise Exception(error_msg)
+# Periodic tasks
+@celery_app.task(name='app.tasks.periodic_cleanup')
+def periodic_cleanup():
+    """Periodic cleanup task (run daily)"""
+    return cleanup_old_files_async.delay(days_to_keep=30)
 
-# Periodic tasks setup
-from celery.schedules import crontab
 
-# Configure periodic tasks
-celery.conf.beat_schedule = {
-    'cleanup-old-files': {
-        'task': 'app.tasks.cleanup_old_files',
-        'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
-    },
-    'generate-daily-analytics': {
-        'task': 'app.tasks.generate_analytics_report',
-        'schedule': crontab(hour=1, minute=0),  # Daily at 1 AM
-        'args': (1,)  # Generate daily report
-    },
-}
+@celery_app.task(name='app.tasks.periodic_analytics')
+def periodic_analytics():
+    """Generate daily analytics reports"""
+    return generate_analytics_async.delay(days=1)
 
-celery.conf.timezone = 'UTC'
+
+# Task monitoring
+@celery_app.task(name='app.tasks.monitor_task_health')
+def monitor_task_health() -> Dict[str, Any]:
+    """Monitor health of task queues and workers"""
+    from celery import current_app
+    
+    inspect = current_app.control.inspect()
+    
+    stats = {
+        'active_tasks': len(inspect.active() or {}),
+        'scheduled_tasks': len(inspect.scheduled() or {}),
+        'reserved_tasks': len(inspect.reserved() or {}),
+        'workers': list((inspect.active_queues() or {}).keys()),
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    # Store in cache for monitoring
+    cache_manager.set('celery_health', stats, ttl=60)
+    
+    return stats

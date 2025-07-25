@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  ocr-scanner:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - SECRET_KEY=dev-secret-key
+      - DATABASE_URL=sqlite:///ocr_scanner.db
+    volumes:
+      - ./backend:/app/backend
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

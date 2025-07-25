@@ -43,14 +43,6 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-/* Button styling */
-.apple-button {
-  border-radius: 8px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  text-transform: none;
-}
-
 /* Table styling */
 .MuiTableContainer-root {
   max-height: 400px;
@@ -95,48 +87,9 @@ pre {
   background: #8E8E93;
 }
 
-/* Dialog styling */
-.apple-dialog {
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-/* Form controls */
-.apple-input {
-  border-radius: 8px;
-}
-
-/* Navbar specific styles */
-.apple-navbar {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background-color: rgba(255, 255, 255, 0.8);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-/* Scanner page styles */
-.scanner-container {
-  background-color: #FFFFFF;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  padding: 24px;
-  margin-bottom: 24px;
-}
-
-/* Dashboard page styles */
-.dashboard-container {
-  display: grid;
-  grid-gap: 24px;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-}
-
 /* Responsive adjustments */
 @media (max-width: 600px) {
   .content {
     padding: 16px;
-  }
-  
-  .dashboard-container {
-    grid-template-columns: 1fr;
   }
 }

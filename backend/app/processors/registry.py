@@ -3,6 +3,8 @@ Initialize and register all document processors
 """
 from .emirates_id import EmiratesIDProcessor
 from .aadhaar import AadhaarProcessor
+from .pan_card import PANCardProcessor
+from .voter_id import VoterIDProcessor
 from .driving_license import DrivingLicenseProcessor
 from .passport import PassportProcessor
 from .us_drivers_license import USDriversLicenseProcessor
@@ -11,16 +13,26 @@ from .uk_passport import UKPassportProcessor
 from .canadian_passport import CanadianPassportProcessor
 from .australian_passport import AustralianPassportProcessor
 from .german_passport import GermanPassportProcessor
+from .eu_id_card import EUIDCardProcessor
+from .japanese_my_number import JapaneseMyNumberProcessor
 from . import processor_registry
 
 # Register all processors
 def initialize_processors():
     """Initialize and register all document processors"""
     
-    # Register specific processors first (higher priority)
-    processor_registry.register(EmiratesIDProcessor())
+    # Register specific Indian ID processors first (higher priority)
     processor_registry.register(AadhaarProcessor())
+    processor_registry.register(PANCardProcessor())
+    processor_registry.register(VoterIDProcessor())
     processor_registry.register(DrivingLicenseProcessor())
+    
+    # International ID cards
+    processor_registry.register(EmiratesIDProcessor())
+    processor_registry.register(EUIDCardProcessor())
+    processor_registry.register(JapaneseMyNumberProcessor())
+    
+    # US documents
     processor_registry.register(USGreenCardProcessor())  # Green Card before Drivers License
     processor_registry.register(USDriversLicenseProcessor())
     
@@ -37,12 +49,11 @@ def initialize_processors():
     # processor_registry.register(FrenchPassportProcessor())
     # processor_registry.register(ItalianPassportProcessor())
     # processor_registry.register(SpanishPassportProcessor())
-    # processor_registry.register(JapanesePassportProcessor())
     # processor_registry.register(ChinesePassportProcessor())
-    # processor_registry.register(ItalianPassportProcessor())
-    # processor_registry.register(SpanishPassportProcessor())
-    # processor_registry.register(JapanesePassportProcessor())
-    # processor_registry.register(ChinesePassportProcessor())
+    # processor_registry.register(SingaporeIDProcessor())
+    # processor_registry.register(SouthKoreanIDProcessor())
+    # processor_registry.register(BrazilianIDProcessor())
+    # processor_registry.register(MexicanIDProcessor())
     
     print(f"✅ Registered {len(processor_registry.processors)} document processors")
 

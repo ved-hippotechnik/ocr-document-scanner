@@ -1,0 +1,19 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" fill="#007AFF" rx="3"/>
+  <g fill="white">
+    <!-- Document shape -->
+    <rect x="6" y="5" width="19" height="22" rx="2" fill="none" stroke="white" stroke-width="1"/>
+    
+    <!-- Text lines -->
+    <line x1="8" y1="8" x2="24" y2="8" stroke="white" stroke-width="1"/>
+    <line x1="8" y1="11" x2="21" y2="11" stroke="white" stroke-width="1"/>
+    <line x1="8" y1="14" x2="22" y2="14" stroke="white" stroke-width="1"/>
+    <line x1="8" y1="17" x2="19" y2="17" stroke="white" stroke-width="1"/>
+    
+    <!-- Scan line -->
+    <line x1="3" y1="21" x2="29" y2="21" stroke="#34C759" stroke-width="2"/>
+    
+    <!-- Scanner beam -->
+    <circle cx="16" cy="21" r="1" fill="#34C759"/>
+  </g>
+</svg>

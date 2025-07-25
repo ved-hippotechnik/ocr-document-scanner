@@ -1,79 +1,52 @@
-2025-06-30 21:38:16,242 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-06-30 21:38:19,555 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-06-30 21:48:19,782 ERROR: Document processing error for enhanced_scan: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py:81]
-2025-06-30 21:48:19,782 ERROR: Unexpected error: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py:220]
-Traceback (most recent call last):
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 77, in enhanced_scan
-    quality_result = quality_analyzer.analyze_quality(image_array)
-AttributeError: 'DocumentQualityAnalyzer' object has no attribute 'analyze_quality'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py", line 307, in wrapper
-    return f(*args, **kwargs)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py", line 60, in wrapper
-    result = func(*args, **kwargs)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 194, in enhanced_scan
-    performance_monitor.log_error('enhanced_scan', str(e))
-AttributeError: 'PerformanceMonitor' object has no attribute 'log_error'
-2025-06-30 21:48:19,792 ERROR: Document processing error for classify: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py:81]
-2025-06-30 21:48:19,792 ERROR: Unexpected error: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py:220]
-Traceback (most recent call last):
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 219, in classify_document_endpoint
-    classification_result = document_classifier.classify_document(image_array)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/classification.py", line 88, in classify_document
-    text_results = self._classify_by_text(text)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/classification.py", line 111, in _classify_by_text
-    text_lower = text.lower()
-AttributeError: 'numpy.ndarray' object has no attribute 'lower'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py", line 307, in wrapper
-    return f(*args, **kwargs)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py", line 60, in wrapper
-    result = func(*args, **kwargs)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 246, in classify_document_endpoint
-    performance_monitor.log_error('classify', str(e))
-AttributeError: 'PerformanceMonitor' object has no attribute 'log_error'
-2025-06-30 21:48:19,802 ERROR: Document processing error for quality_check: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py:81]
-2025-06-30 21:48:19,802 ERROR: Unexpected error: 'PerformanceMonitor' object has no attribute 'log_error' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py:220]
-Traceback (most recent call last):
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 271, in quality_check_endpoint
-    quality_result = quality_analyzer.analyze_quality(image_array)
-AttributeError: 'DocumentQualityAnalyzer' object has no attribute 'analyze_quality'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/validation.py", line 307, in wrapper
-    return f(*args, **kwargs)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/monitoring.py", line 60, in wrapper
-    result = func(*args, **kwargs)
-  File "/Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py", line 292, in quality_check_endpoint
-    performance_monitor.log_error('quality_check', str(e))
-AttributeError: 'PerformanceMonitor' object has no attribute 'log_error'
-2025-07-01 08:24:04,149 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:25:36,428 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:25:39,561 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:27:55,304 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:32:29,382 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:33:00,773 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:33:37,226 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:34:36,271 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:35:10,501 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 08:35:20,106 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 13:52:47,588 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:20:27,306 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:23:06,943 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:23:30,014 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:23:43,403 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:24:18,103 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:24:26,196 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:24:28,622 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:25:51,056 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:25:51,056 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:26:32,039 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
-2025-07-01 18:26:32,039 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:69]
+2025-07-18 10:03:35,939 ERROR: ❌ Failed to initialize enhanced processors: ParallelOCRProcessor.__init__() got an unexpected keyword argument 'num_workers' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:65]
+2025-07-18 10:04:27,745 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:124]
+2025-07-18 10:04:27,746 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:124]
+2025-07-18 10:04:27,746 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:124]
+2025-07-18 10:04:28,555 WARNING: ⚠️  Redis cache not available: Error 61 connecting to localhost:6379. Connection refused. [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/redis_cache.py:43]
+2025-07-18 10:04:28,555 WARNING: ⚠️  Redis cache not available: Error 61 connecting to localhost:6379. Connection refused. [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/redis_cache.py:43]
+2025-07-18 10:04:28,555 WARNING: ⚠️  Redis cache not available: Error 61 connecting to localhost:6379. Connection refused. [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/redis_cache.py:43]
+2025-07-18 10:04:28,555 WARNING: ⚠️  Redis cache not available [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:32]
+2025-07-18 10:04:28,555 WARNING: ⚠️  Redis cache not available [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:32]
+2025-07-18 10:04:28,555 WARNING: ⚠️  Redis cache not available [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:32]
+2025-07-18 10:04:28,556 INFO: ✅ Memory cache initialized (max_size=1000) [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/memory_cache.py:37]
+2025-07-18 10:04:28,556 INFO: ✅ Using Memory cache as primary cache [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:43]
+2025-07-18 10:04:28,557 ERROR: ❌ Failed to initialize enhanced processors: ParallelOCRProcessor.__init__() got an unexpected keyword argument 'num_workers' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:65]
+2025-07-18 10:04:28,557 INFO: ✅ Memory cache initialized (max_size=1000) [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/memory_cache.py:37]
+2025-07-18 10:04:28,557 INFO: ✅ Using Memory cache as primary cache [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:43]
+2025-07-18 10:04:28,557 ERROR: ❌ Failed to initialize enhanced processors: ParallelOCRProcessor.__init__() got an unexpected keyword argument 'num_workers' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:65]
+2025-07-18 10:04:28,557 INFO: ✅ Memory cache initialized (max_size=1000) [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/memory_cache.py:37]
+2025-07-18 10:04:28,557 INFO: ✅ Using Memory cache as primary cache [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:43]
+2025-07-18 10:04:28,558 ERROR: ❌ Failed to initialize enhanced processors: ParallelOCRProcessor.__init__() got an unexpected keyword argument 'num_workers' [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:65]
+2025-07-18 23:15:29,847 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:143]
+2025-07-18 23:15:32,143 WARNING: ⚠️  Redis cache not available: Error 61 connecting to localhost:6379. Connection refused. [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/redis_cache.py:43]
+2025-07-18 23:15:32,143 WARNING: ⚠️  Redis cache not available [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:32]
+2025-07-18 23:15:32,146 INFO: ✅ Memory cache initialized (max_size=1000) [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/memory_cache.py:37]
+2025-07-18 23:15:32,146 INFO: ✅ Using Memory cache as primary cache [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:43]
+2025-07-18 23:15:32,146 ERROR: ❌ Failed to initialize enhanced processors: name 'EnhancedImageProcessor' is not defined [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:90]
+2025-07-18 23:15:32,165 WARNING: Model or scaler not found, initializing with default model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:76]
+2025-07-18 23:15:32,166 INFO: Initialized default document classifier model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:92]
+2025-07-18 23:15:32,175 WARNING: Model or scaler not found, initializing with default model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:76]
+2025-07-18 23:15:32,176 INFO: Initialized default document classifier model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:92]
+2025-07-18 23:15:32,176 INFO: Batch Job Manager initialized with 4 workers [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/batch/processor.py:57]
+2025-07-18 23:16:30,681 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:143]
+2025-07-18 23:16:31,612 WARNING: ⚠️  Redis cache not available: Error 61 connecting to localhost:6379. Connection refused. [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/redis_cache.py:43]
+2025-07-18 23:16:31,612 WARNING: ⚠️  Redis cache not available [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:32]
+2025-07-18 23:16:31,613 INFO: ✅ Memory cache initialized (max_size=1000) [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/memory_cache.py:37]
+2025-07-18 23:16:31,613 INFO: ✅ Using Memory cache as primary cache [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:43]
+2025-07-18 23:16:31,613 ERROR: ❌ Failed to initialize enhanced processors: name 'EnhancedImageProcessor' is not defined [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:90]
+2025-07-18 23:16:31,616 WARNING: Model or scaler not found, initializing with default model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:76]
+2025-07-18 23:16:31,616 INFO: Initialized default document classifier model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:92]
+2025-07-18 23:16:31,620 WARNING: Model or scaler not found, initializing with default model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:76]
+2025-07-18 23:16:31,621 INFO: Initialized default document classifier model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:92]
+2025-07-18 23:16:31,621 INFO: Batch Job Manager initialized with 4 workers [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/batch/processor.py:57]
+2025-07-18 23:16:38,700 INFO: OCR Document Scanner startup [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/__init__.py:143]
+2025-07-18 23:16:39,603 WARNING: ⚠️  Redis cache not available: Error 61 connecting to localhost:6379. Connection refused. [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/redis_cache.py:43]
+2025-07-18 23:16:39,604 WARNING: ⚠️  Redis cache not available [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:32]
+2025-07-18 23:16:39,605 INFO: ✅ Memory cache initialized (max_size=1000) [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/memory_cache.py:37]
+2025-07-18 23:16:39,605 INFO: ✅ Using Memory cache as primary cache [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/cache/__init__.py:43]
+2025-07-18 23:16:39,605 ERROR: ❌ Failed to initialize enhanced processors: name 'EnhancedImageProcessor' is not defined [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/routes_enhanced.py:90]
+2025-07-18 23:16:39,608 WARNING: Model or scaler not found, initializing with default model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:76]
+2025-07-18 23:16:39,608 INFO: Initialized default document classifier model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:92]
+2025-07-18 23:16:39,612 WARNING: Model or scaler not found, initializing with default model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:76]
+2025-07-18 23:16:39,612 INFO: Initialized default document classifier model [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/ai/document_classifier.py:92]
+2025-07-18 23:16:39,612 INFO: Batch Job Manager initialized with 4 workers [in /Users/vedthampi/CascadeProjects/ocr-document-scanner/backend/app/batch/processor.py:57]

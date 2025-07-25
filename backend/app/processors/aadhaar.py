@@ -57,17 +57,27 @@ class AadhaarProcessor(DocumentProcessor):
         clahe_img = clahe.apply(gray)
         processed_images.append(cv2.cvtColor(clahe_img, cv2.COLOR_GRAY2BGR))
         
-        # 2. Gaussian blur and threshold
+        # 2. Bilateral filtering for denoising while preserving edges
+        bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
+        processed_images.append(cv2.cvtColor(bilateral, cv2.COLOR_GRAY2BGR))
+        
+        # 3. Gaussian blur and threshold
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         processed_images.append(cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR))
         
-        # 3. Morphological operations to clean up
-        kernel = np.ones((2, 2), np.uint8)
-        opening = cv2.morphologyEx(thresh, cv2.MORPH_OPENING, kernel)
-        processed_images.append(cv2.cvtColor(opening, cv2.COLOR_GRAY2BGR))
+        # 4. Adaptive threshold for varying lighting conditions
+        adaptive_thresh = cv2.adaptiveThreshold(bilateral, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                              cv2.THRESH_BINARY, 11, 2)
+        processed_images.append(cv2.cvtColor(adaptive_thresh, cv2.COLOR_GRAY2BGR))
         
-        # 4. Sharpen the image
+        # 5. Morphological operations to clean up text (using safe constant)
+        kernel = np.ones((2, 2), np.uint8)
+        # Use cv2.MORPH_CLOSE instead of cv2.MORPH_OPEN for better text cleanup
+        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        processed_images.append(cv2.cvtColor(morph, cv2.COLOR_GRAY2BGR))
+        
+        # 6. Sharpen the image for better OCR
         kernel_sharpen = np.array([[-1, -1, -1],
                                    [-1, 9, -1],
                                    [-1, -1, -1]])
@@ -113,18 +123,35 @@ class AadhaarProcessor(DocumentProcessor):
         return None
     
     def _extract_name(self, text: str) -> Optional[str]:
-        """Extract full name"""
+        """Extract full name with enhanced patterns"""
         patterns = [
-            r'(?:Name[:\s]+|नाम[:\s]+)([A-Za-z\s]+?)(?:\n|Date|DOB|जन्म)',
-            r'^([A-Z][A-Za-z\s]+?)(?:\n|Date|DOB|Father|S/o)',
-            r'([A-Z][A-Za-z\s]{5,30}?)(?:\s+(?:Male|Female|पुरुष|महिला))'
+            # English patterns
+            r'(?:Name[:\s]+|नाम[:\s]+)([A-Za-z\s]+?)(?:\n|Date|DOB|जन्म|Father|S/o)',
+            r'(?:नाम\s*/\s*Name[:\s]+)([A-Za-z\s]+?)(?:\n|Date|DOB|जन्म)',
+            r'^([A-Z][A-Za-z\s]+?)(?:\n|Date|DOB|Father|S/o|जन्म)',
+            r'([A-Z][A-Za-z\s]{5,30}?)(?:\s+(?:Male|Female|पुरुष|महिला))',
+            # Handle names before Aadhaar number
+            r'([A-Z][A-Za-z\s]{3,25}?)\s*\n?\s*(?:\d{4}\s?\d{4}\s?\d{4})',
+            # Names near government headers
+            r'(?:Government of India|भारत सरकार).*?([A-Z][A-Za-z\s]{5,25}?)(?:\n|Date|DOB)'
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
+            match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE | re.DOTALL)
             if match:
                 name = match.group(1).strip()
-                if len(name) > 2 and not re.match(r'^\d+$', name):
+                # Enhanced filtering
+                if (len(name) > 2 and 
+                    not re.match(r'^\d+$', name) and
+                    'government' not in name.lower() and
+                    'india' not in name.lower() and
+                    'aadhaar' not in name.lower() and
+                    'unique' not in name.lower() and
+                    'identification' not in name.lower() and
+                    'authority' not in name.lower() and
+                    'qr code' not in name.lower() and
+                    'photo' not in name.lower() and
+                    len(name.split()) <= 4):  # Reasonable name length
                     return name
         return None
     

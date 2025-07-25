@@ -1,92 +1,296 @@
 #!/bin/bash
 
-# OCR Document Scanner Deployment Script
-# This script handles the deployment and testing of the enhanced OCR system
+# Enhanced OCR Document Scanner - Production Deployment Script
+# This script builds and deploys the enhanced OCR system
 
-set -e  # Exit on error
+set -e
 
-echo "🚀 Starting OCR Document Scanner Deployment"
-echo "============================================="
+echo "🚀 ENHANCED OCR DOCUMENT SCANNER - DEPLOYMENT SCRIPT"
+echo "======================================================"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
 # Function to print colored output
 print_status() {
-    echo -e "\033[1;34m[INFO]\033[0m $1"
-}
-
-print_success() {
-    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
-}
-
-print_error() {
-    echo -e "\033[1;31m[ERROR]\033[0m $1"
+    echo -e "${GREEN}[INFO]${NC} $1"
 }
 
 print_warning() {
-    echo -e "\033[1;33m[WARNING]\033[0m $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-# Check if Docker and Docker Compose are installed
-check_dependencies() {
-    print_status "Checking dependencies..."
-    
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_header() {
+    echo -e "${BLUE}$1${NC}"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+# Check if Docker is installed
+check_docker() {
     if ! command -v docker &> /dev/null; then
         print_error "Docker is not installed. Please install Docker first."
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
-        print_error "Docker Compose is not installed. Please install Docker Compose first."
+    if ! docker info &> /dev/null; then
+        print_error "Docker is not running. Please start Docker first."
         exit 1
     fi
     
-    print_success "Docker and Docker Compose are installed"
+    print_status "Docker is installed and running"
 }
 
-# Create environment file if it doesn't exist
-setup_environment() {
-    print_status "Setting up environment..."
+# Create necessary directories
+create_directories() {
+    print_status "Creating necessary directories..."
     
-    if [ ! -f .env ]; then
-        print_warning ".env file not found. Creating from template..."
-        cp .env.example .env
-        
-        # Generate secure random keys
-        SECRET_KEY=$(openssl rand -hex 32)
-        POSTGRES_PASSWORD=$(openssl rand -hex 16)
-        REDIS_PASSWORD=$(openssl rand -hex 16)
-        FLOWER_PASSWORD=$(openssl rand -hex 12)
-        
-        # Update .env file with secure values
-        sed -i.bak "s/your-secret-key-here/$SECRET_KEY/" .env
-        sed -i.bak "s/change-this-password/$POSTGRES_PASSWORD/" .env
-        sed -i.bak "s/change-this-password/$REDIS_PASSWORD/" .env 2>/dev/null || true
-        sed -i.bak "s/change-this-password/$FLOWER_PASSWORD/" .env 2>/dev/null || true
-        
-        rm .env.bak 2>/dev/null || true
-        
-        print_success "Environment file created with secure keys"
+    mkdir -p uploads logs models analytics_charts
+    
+    print_success "Directories created successfully"
+}
+
+# Build the application
+build_application() {
+    print_header "Building Enhanced OCR Application..."
+    
+    # Build the Docker image
+    print_status "Building Docker image..."
+    docker build -t enhanced-ocr-scanner .
+    
+    if [ $? -eq 0 ]; then
+        print_success "Docker image built successfully"
     else
-        print_success "Environment file already exists"
+        print_error "Failed to build Docker image"
+        exit 1
     fi
 }
 
-# Stop any running containers
-cleanup_containers() {
-    print_status "Cleaning up existing containers..."
+# Deploy standalone container
+deploy_standalone() {
+    print_header "Deploying Standalone Container..."
     
-    docker-compose down --remove-orphans || true
-    docker system prune -f --volumes || true
+    # Stop existing container if running
+    print_status "Stopping existing container..."
+    docker stop enhanced-ocr-scanner 2>/dev/null || true
+    docker rm enhanced-ocr-scanner 2>/dev/null || true
     
-    print_success "Cleanup completed"
+    # Run the container
+    print_status "Starting Enhanced OCR container..."
+    docker run -d \
+        --name enhanced-ocr-scanner \
+        --restart unless-stopped \
+        -p 5000:5000 \
+        -v $(pwd)/uploads:/app/uploads \
+        -v $(pwd)/logs:/app/logs \
+        -v $(pwd)/models:/app/models \
+        -v $(pwd)/analytics_charts:/app/analytics_charts \
+        -e FLASK_ENV=production \
+        -e TESSERACT_CMD=/usr/bin/tesseract \
+        -e PYTHONPATH=/app \
+        -e PYTHONUNBUFFERED=1 \
+        enhanced-ocr-scanner
+    
+    if [ $? -eq 0 ]; then
+        print_success "Container started successfully"
+    else
+        print_error "Failed to start container"
+        exit 1
+    fi
 }
 
-# Build and start services
-deploy_services() {
-    print_status "Building and starting services..."
+# Wait for application to be ready
+wait_for_application() {
+    print_status "Waiting for application to be ready..."
     
-    # Build images
-    print_status "Building Docker images..."
-    docker-compose build --no-cache
+    for i in {1..30}; do
+        if curl -f http://localhost:5000/health &> /dev/null; then
+            print_success "Application is ready!"
+            return 0
+        fi
+        print_status "Waiting... (attempt $i/30)"
+        sleep 2
+    done
+    
+    print_error "Application failed to start within 60 seconds"
+    return 1
+}
+
+# Show deployment information
+show_deployment_info() {
+    print_header "🎉 Deployment Complete!"
+    echo ""
+    echo "🌐 Application URL: http://localhost:5000"
+    echo "📊 Health Check: http://localhost:5000/health"
+    echo "📈 Analytics: http://localhost:5000/api/analytics/dashboard"
+    echo "📋 API Status: http://localhost:5000/api/status"
+    echo ""
+    echo "📁 Directories:"
+    echo "   • Uploads: $(pwd)/uploads"
+    echo "   • Logs: $(pwd)/logs"
+    echo "   • Models: $(pwd)/models"
+    echo "   • Analytics: $(pwd)/analytics_charts"
+    echo ""
+    echo "🔧 Management Commands:"
+    echo "   • View logs: docker logs enhanced-ocr-scanner"
+    echo "   • Stop app: docker stop enhanced-ocr-scanner"
+    echo "   • Restart app: docker restart enhanced-ocr-scanner"
+    echo "   • Update app: ./deploy.sh --rebuild"
+    echo ""
+    echo "✨ Features Available:"
+    echo "   • Advanced OCR with machine learning classification"
+    echo "   • Real-time document processing"
+    echo "   • Security validation and encryption"
+    echo "   • Analytics dashboard with comprehensive metrics"
+    echo "   • Support for multiple document types"
+    echo "   • Modern web interface with drag-and-drop upload"
+    echo ""
+}
+
+# Show usage information
+show_usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --rebuild     Force rebuild of Docker image"
+    echo "  --stop        Stop all services"
+    echo "  --logs        Show application logs"
+    echo "  --status      Show deployment status"
+    echo "  --help        Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                    # Deploy the application"
+    echo "  $0 --rebuild          # Rebuild and deploy"
+    echo "  $0 --stop             # Stop the application"
+    echo "  $0 --logs             # View application logs"
+    echo "  $0 --status           # Check deployment status"
+    echo ""
+}
+
+# Stop all services
+stop_services() {
+    print_header "Stopping Services..."
+    
+    # Stop standalone container
+    docker stop enhanced-ocr-scanner 2>/dev/null || true
+    docker rm enhanced-ocr-scanner 2>/dev/null || true
+    
+    print_success "All services stopped"
+}
+
+# Show logs
+show_logs() {
+    print_header "Application Logs"
+    
+    if docker ps | grep -q enhanced-ocr-scanner; then
+        docker logs -f enhanced-ocr-scanner
+    else
+        print_error "No running containers found"
+        exit 1
+    fi
+}
+
+# Show status
+show_status() {
+    print_header "Deployment Status"
+    echo ""
+    
+    echo "Docker Containers:"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep enhanced-ocr-scanner || echo "❌ No containers running"
+    
+    echo ""
+    echo "Health Check:"
+    if curl -f http://localhost:5000/health &> /dev/null; then
+        echo "✅ Application is healthy"
+        echo "✅ Available at: http://localhost:5000"
+    else
+        echo "❌ Application is not responding"
+    fi
+    
+    echo ""
+    echo "System Resources:"
+    echo "Docker Images:"
+    docker images | grep enhanced-ocr-scanner || echo "❌ No images found"
+    
+    echo ""
+    echo "Disk Usage:"
+    echo "Uploads: $(du -sh uploads 2>/dev/null || echo 'N/A')"
+    echo "Logs: $(du -sh logs 2>/dev/null || echo 'N/A')"
+    echo "Models: $(du -sh models 2>/dev/null || echo 'N/A')"
+}
+
+# Main deployment process
+main() {
+    local rebuild=false
+    
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --rebuild)
+                rebuild=true
+                shift
+                ;;
+            --stop)
+                stop_services
+                exit 0
+                ;;
+            --logs)
+                show_logs
+                exit 0
+                ;;
+            --status)
+                show_status
+                exit 0
+                ;;
+            --help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+    
+    print_header "Starting Enhanced OCR Document Scanner Deployment"
+    
+    # Pre-deployment checks
+    check_docker
+    create_directories
+    
+    # Build application
+    if [ "$rebuild" == true ] || ! docker images | grep -q enhanced-ocr-scanner; then
+        build_application
+    else
+        print_status "Using existing Docker image (use --rebuild to force rebuild)"
+    fi
+    
+    # Deploy the application
+    deploy_standalone
+    
+    # Wait for application to be ready
+    wait_for_application
+    
+    # Show deployment information
+    show_deployment_info
+    
+    print_success "Your Enhanced OCR Document Scanner is now running at http://localhost:5000"
+}
+
+# Run main function with all arguments
+main "$@"
     
     # Start infrastructure services first
     print_status "Starting infrastructure services (PostgreSQL, Redis)..."

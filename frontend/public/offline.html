@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Scanner - Offline</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            text-align: center;
+            background: white;
+            padding: 3rem;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 500px;
+            margin: 2rem;
+        }
+        
+        .offline-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            color: #ff6b6b;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+        
+        p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        
+        .features {
+            background: #f8f9fa;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+        }
+        
+        .features h3 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+        
+        .features ul {
+            list-style: none;
+            text-align: left;
+        }
+        
+        .features li {
+            padding: 0.5rem 0;
+            color: #555;
+            position: relative;
+            padding-left: 2rem;
+        }
+        
+        .features li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .retry-btn {
+            background: linear-gradient(45deg, #007AFF, #34C759);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-right: 1rem;
+        }
+        
+        .retry-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .offline-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .offline-btn:hover {
+            background: #5a6268;
+        }
+        
+        .status {
+            margin-top: 2rem;
+            padding: 1rem;
+            border-radius: 10px;
+            font-size: 0.9rem;
+        }
+        
+        .status.online {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.offline {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 2rem;
+                margin: 1rem;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+            }
+            
+            .retry-btn, .offline-btn {
+                display: block;
+                margin: 0.5rem auto;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="offline-icon">📱</div>
+        <h1>You're Offline</h1>
+        <p>OCR Scanner is currently offline. Check your internet connection and try again.</p>
+        
+        <div class="features">
+            <h3>Available Offline Features:</h3>
+            <ul>
+                <li>View cached scan results</li>
+                <li>Access previously scanned documents</li>
+                <li>Browse app interface</li>
+                <li>Queue scans for when you're back online</li>
+            </ul>
+        </div>
+        
+        <button class="retry-btn" onclick="retryConnection()">Try Again</button>
+        <button class="offline-btn" onclick="continueOffline()">Continue Offline</button>
+        
+        <div id="status" class="status offline">
+            <strong>Status:</strong> <span id="connection-status">Offline</span>
+        </div>
+    </div>
+
+    <script>
+        // Check connection status
+        function updateConnectionStatus() {
+            const statusEl = document.getElementById('status');
+            const connectionEl = document.getElementById('connection-status');
+            
+            if (navigator.onLine) {
+                statusEl.className = 'status online';
+                connectionEl.textContent = 'Online';
+            } else {
+                statusEl.className = 'status offline';
+                connectionEl.textContent = 'Offline';
+            }
+        }
+        
+        // Retry connection
+        function retryConnection() {
+            if (navigator.onLine) {
+                // Try to reload the main app
+                window.location.href = '/';
+            } else {
+                alert('Still offline. Please check your internet connection.');
+            }
+        }
+        
+        // Continue offline
+        function continueOffline() {
+            // Try to open the cached version of the app
+            window.location.href = '/';
+        }
+        
+        // Listen for connection changes
+        window.addEventListener('online', updateConnectionStatus);
+        window.addEventListener('offline', updateConnectionStatus);
+        
+        // Initial status check
+        updateConnectionStatus();
+        
+        // Automatically retry when connection is restored
+        window.addEventListener('online', function() {
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

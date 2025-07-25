@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  ocr-scanner:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ./analytics_charts:/app/analytics_charts
+    environment:
+      - FLASK_ENV=production
+      - TESSERACT_CMD=/usr/bin/tesseract
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=ocr_scanner
+      - POSTGRES_USER=ocr_user
+      - POSTGRES_PASSWORD=secure_password_123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocr_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

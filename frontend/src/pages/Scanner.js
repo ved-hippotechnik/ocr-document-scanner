@@ -54,13 +54,41 @@ const Scanner = () => {
     };
   }, [stream]);
 
+  const validateFile = (file) => {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    
+    if (!allowedTypes.includes(file.type)) {
+      return 'Please select a valid image file (JPEG, PNG, GIF, or WebP).';
+    }
+    
+    if (file.size > maxSize) {
+      return 'File size must be less than 10MB.';
+    }
+    
+    return null;
+  };
+
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
+      const validationError = validateFile(file);
+      if (validationError) {
+        setError(validationError);
+        setSnackbarMessage(validationError);
+        setSnackbarOpen(true);
+        return;
+      }
+      
       setSelectedFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setPreview(reader.result);
+      };
+      reader.onerror = () => {
+        setError('Error reading file. Please try again.');
+        setSnackbarMessage('Error reading file. Please try again.');
+        setSnackbarOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -77,10 +105,23 @@ const Scanner = () => {
 
     const file = event.dataTransfer.files[0];
     if (file) {
+      const validationError = validateFile(file);
+      if (validationError) {
+        setError(validationError);
+        setSnackbarMessage(validationError);
+        setSnackbarOpen(true);
+        return;
+      }
+      
       setSelectedFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setPreview(reader.result);
+      };
+      reader.onerror = () => {
+        setError('Error reading file. Please try again.');
+        setSnackbarMessage('Error reading file. Please try again.');
+        setSnackbarOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -99,8 +140,20 @@ const Scanner = () => {
       setDialogOpen(true);
     } catch (err) {
       console.error('Camera access error:', err);
-      setError('Could not access camera: ' + err.message);
-      setSnackbarMessage('Could not access camera: ' + err.message);
+      let errorMessage = 'Could not access camera';
+      
+      if (err.name === 'NotAllowedError') {
+        errorMessage = 'Camera access denied. Please allow camera permissions and try again.';
+      } else if (err.name === 'NotFoundError') {
+        errorMessage = 'No camera found on this device.';
+      } else if (err.name === 'NotReadableError') {
+        errorMessage = 'Camera is already in use by another application.';
+      } else {
+        errorMessage = `Could not access camera: ${err.message}`;
+      }
+      
+      setError(errorMessage);
+      setSnackbarMessage(errorMessage);
       setSnackbarOpen(true);
     }
   };
@@ -183,6 +236,7 @@ const Scanner = () => {
   const handleScan = async () => {
     if (!selectedFile) {
       setError('Please select or capture an image first');
+      setSnackbarMessage('Please select or capture an image first');
       setSnackbarOpen(true);
       return;
     }
@@ -195,17 +249,25 @@ const Scanner = () => {
     formData.append('image', selectedFile);
 
     try {
-      const response = await axios.post('http://localhost:5001/api/scan', formData, {
+      const response = await axios.post('http://localhost:5003/api/v2/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 30000 // 30 second timeout
       });
 
-      setScanResult(response.data);
-      setSnackbarMessage('Document scanned successfully!');
-      setSnackbarOpen(true);
+      if (response.data && response.data.document_type) {
+        setScanResult(response.data);
+        setSnackbarMessage('Document scanned successfully!');
+        setSnackbarOpen(true);
+      } else {
+        throw new Error('Invalid response from server');
+      }
     } catch (err) {
-      setError('Error scanning document: ' + (err.response?.data?.message || err.message));
+      console.error('Scan error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to scan document';
+      setError(`Error scanning document: ${errorMessage}`);
+      setSnackbarMessage(`Error scanning document: ${errorMessage}`);
       setSnackbarOpen(true);
     } finally {
       setScanning(false);
@@ -253,7 +315,7 @@ const Scanner = () => {
           >
             <Box
               sx={{
-                height: 400,
+                height: { xs: 300, sm: 350, md: 400 },
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
@@ -263,6 +325,11 @@ const Scanner = () => {
                 position: 'relative',
                 overflow: 'hidden',
                 backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  borderColor: 'rgba(0, 0, 0, 0.2)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                }
               }}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -275,52 +342,75 @@ const Scanner = () => {
                     style={{
                       maxWidth: '100%',
                       maxHeight: '100%',
-                      objectFit: 'contain'
+                      objectFit: 'contain',
+                      borderRadius: '8px'
                     }}
                   />
                   <Box
                     sx={{
                       position: 'absolute',
-                      top: 8,
-                      right: 8,
+                      top: { xs: 4, sm: 8 },
+                      right: { xs: 4, sm: 8 },
                       bgcolor: 'rgba(255, 255, 255, 0.9)',
                       borderRadius: '50%',
+                      backdropFilter: 'blur(10px)',
                     }}
                   >
-                    <IconButton size="small" onClick={resetScan}>
-                      <CloseIcon />
+                    <IconButton 
+                      size="small" 
+                      onClick={resetScan}
+                      sx={{ 
+                        p: { xs: 0.5, sm: 1 },
+                      }}
+                    >
+                      <CloseIcon sx={{ fontSize: { xs: 18, sm: 20, md: 24 } }} />
                     </IconButton>
                   </Box>
                 </>
               ) : (
-                <Box sx={{ textAlign: 'center', p: 3 }}>
-                  <UploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
+                <Box sx={{ textAlign: 'center', p: { xs: 2, sm: 3 } }}>
+                  <UploadIcon sx={{ 
+                    fontSize: { xs: 40, sm: 48, md: 56 }, 
+                    color: 'text.secondary', 
+                    mb: 2 
+                  }} />
+                  <Typography variant="h6" gutterBottom sx={{ 
+                    fontSize: { xs: '1.1rem', sm: '1.25rem', md: '1.5rem' }
+                  }}>
                     Drag and drop your document here
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" paragraph>
+                  <Typography variant="body2" color="text.secondary" paragraph sx={{
+                    fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' }
+                  }}>
                     or use one of the options below
                   </Typography>
-                  <Box sx={{ mt: 2 }}>
+                  <Box sx={{ mt: 2, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
                     <Button
                       variant="contained"
                       component="label"
-                      startIcon={<UploadIcon />}
-                      sx={{ mr: 2 }}
+                      startIcon={<UploadIcon sx={{ fontSize: { xs: 18, sm: 20, md: 24 } }} />}
+                      sx={{ 
+                        minWidth: { xs: '100%', sm: 'auto' },
+                        fontSize: { xs: '0.875rem', sm: '0.9rem', md: '1rem' }
+                      }}
                     >
                       Upload File
                       <input
                         type="file"
                         hidden
-                        accept="image/*"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                         onChange={handleFileSelect}
                         ref={fileInputRef}
                       />
                     </Button>
                     <Button
                       variant="outlined"
-                      startIcon={<CameraIcon />}
+                      startIcon={<CameraIcon sx={{ fontSize: { xs: 18, sm: 20, md: 24 } }} />}
                       onClick={startCamera}
+                      sx={{ 
+                        minWidth: { xs: '100%', sm: 'auto' },
+                        fontSize: { xs: '0.875rem', sm: '0.9rem', md: '1rem' }
+                      }}
                     >
                       Use Camera
                     </Button>
@@ -333,14 +423,15 @@ const Scanner = () => {
               <Button
                 variant="contained"
                 size="large"
-                startIcon={<ScanIcon />}
+                startIcon={<ScanIcon sx={{ fontSize: { xs: 18, sm: 20, md: 24 } }} />}
                 onClick={handleScan}
                 disabled={!selectedFile || scanning}
                 sx={{
-                  px: 4,
-                  py: 1,
+                  px: { xs: 2, sm: 3, md: 4 },
+                  py: { xs: 0.75, sm: 1, md: 1.25 },
                   borderRadius: 3,
-                  fontSize: '1.1rem'
+                  fontSize: { xs: '0.9rem', sm: '1rem', md: '1.1rem' },
+                  minWidth: { xs: '100%', sm: 'auto' }
                 }}
               >
                 {scanning ? 'Scanning...' : 'Scan Document'}
@@ -365,28 +456,46 @@ const Scanner = () => {
             }}
           >
             {scanning ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
-                <CircularProgress size={48} sx={{ mb: 2 }} />
-                <Typography variant="h6">Processing document...</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: { xs: 4, sm: 6, md: 8 } }}>
+                <CircularProgress size={{ xs: 40, sm: 48, md: 56 }} sx={{ mb: 2 }} />
+                <Typography variant="h6" sx={{
+                  fontSize: { xs: '1.1rem', sm: '1.25rem', md: '1.5rem' }
+                }}>
+                  Processing document...
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ 
+                  mt: 1,
+                  fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' },
+                  textAlign: 'center'
+                }}>
                   This may take a few moments
                 </Typography>
               </Box>
             ) : scanResult ? (
               <Box>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="h6" gutterBottom sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  fontSize: { xs: '1.1rem', sm: '1.25rem', md: '1.5rem' }
+                }}>
                   Scan Results
                 </Typography>
                 <Divider sx={{ my: 2 }} />
                 <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle1" gutterBottom>
+                  <Typography variant="subtitle1" gutterBottom sx={{
+                    fontSize: { xs: '0.95rem', sm: '1rem', md: '1.1rem' }
+                  }}>
                     Document Type: {scanResult.document_type}
                   </Typography>
-                  <Typography variant="subtitle1" gutterBottom>
+                  <Typography variant="subtitle1" gutterBottom sx={{
+                    fontSize: { xs: '0.95rem', sm: '1rem', md: '1.1rem' }
+                  }}>
                     Nationality: {scanResult.nationality}
                   </Typography>
                   {scanResult.processing_method && (
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                    <Typography variant="body2" color="text.secondary" gutterBottom sx={{
+                      fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' }
+                    }}>
                       Processing: {scanResult.processing_method} 
                       {scanResult.confidence && ` (${scanResult.confidence} confidence)`}
                       {scanResult.processing_method === 'enhanced_emirates_id' && ' 🇦🇪'}
@@ -396,7 +505,9 @@ const Scanner = () => {
                   )}
                   {scanResult.extracted_info && (
                     <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle1" gutterBottom>
+                      <Typography variant="subtitle1" gutterBottom sx={{
+                        fontSize: { xs: '0.95rem', sm: '1rem', md: '1.1rem' }
+                      }}>
                         Extracted Information:
                       </Typography>
                       {Object.entries(scanResult.extracted_info)
@@ -438,7 +549,11 @@ const Scanner = () => {
                           }
                           
                           return (
-                            <Typography key={key} variant="body2" sx={{ mb: 1 }}>
+                            <Typography key={key} variant="body2" sx={{ 
+                              mb: 1,
+                              fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' },
+                              wordBreak: 'break-word'
+                            }}>
                               <strong>{key.replace(/_/g, ' ').toUpperCase()}:</strong> {displayValue}
                             </Typography>
                           );
@@ -448,10 +563,22 @@ const Scanner = () => {
                 </Box>
               </Box>
             ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 8 }}>
-                <ScanIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="h6">No scan results yet</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: { xs: 4, sm: 6, md: 8 } }}>
+                <ScanIcon sx={{ 
+                  fontSize: { xs: 40, sm: 48, md: 56 }, 
+                  color: 'text.secondary', 
+                  mb: 2 
+                }} />
+                <Typography variant="h6" sx={{
+                  fontSize: { xs: '1.1rem', sm: '1.25rem', md: '1.5rem' }
+                }}>
+                  No scan results yet
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ 
+                  mt: 1,
+                  fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' },
+                  textAlign: 'center'
+                }}>
                   Select or capture a document to start scanning
                 </Typography>
               </Box>
@@ -466,17 +593,35 @@ const Scanner = () => {
         onClose={stopCamera}
         maxWidth="md"
         fullWidth
+        sx={{
+          '& .MuiDialog-paper': {
+            margin: { xs: 1, sm: 2 },
+            maxHeight: { xs: '95vh', sm: '90vh' }
+          }
+        }}
       >
-        <DialogTitle>
+        <DialogTitle sx={{ pb: 1 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">Capture Document</Typography>
-            <IconButton edge="end" onClick={stopCamera}>
-              <CloseIcon />
+            <Typography variant="h6" sx={{ fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
+              Capture Document
+            </Typography>
+            <IconButton 
+              edge="end" 
+              onClick={stopCamera}
+              sx={{ p: { xs: 0.5, sm: 1 } }}
+            >
+              <CloseIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
             </IconButton>
           </Box>
         </DialogTitle>
-        <DialogContent>
-          <Box sx={{ position: 'relative', width: '100%', height: 400 }}>
+        <DialogContent sx={{ p: { xs: 1, sm: 2 } }}>
+          <Box sx={{ 
+            position: 'relative', 
+            width: '100%', 
+            height: { xs: 250, sm: 350, md: 400 },
+            borderRadius: 2,
+            overflow: 'hidden'
+          }}>
             <video
               ref={videoRef}
               autoPlay
@@ -497,12 +642,21 @@ const Scanner = () => {
             />
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={stopCamera}>Cancel</Button>
+        <DialogActions sx={{ p: { xs: 1, sm: 2 }, gap: 1 }}>
+          <Button 
+            onClick={stopCamera}
+            sx={{ fontSize: { xs: '0.875rem', sm: '0.9rem' } }}
+          >
+            Cancel
+          </Button>
           <Button
             variant="contained"
-            startIcon={<CameraAltIcon />}
+            startIcon={<CameraAltIcon sx={{ fontSize: { xs: 18, sm: 20, md: 24 } }} />}
             onClick={captureImage}
+            sx={{ 
+              fontSize: { xs: '0.875rem', sm: '0.9rem' },
+              px: { xs: 2, sm: 3 }
+            }}
           >
             Capture
           </Button>

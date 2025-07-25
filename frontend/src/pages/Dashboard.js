@@ -75,54 +75,7 @@ ChartJS.register(
   ArcElement
 );
 
-// Utility functions to reduce cognitive complexity
-const getDocumentTypeIcon = (documentType, iconProps = {}) => {
-  const baseProps = { sx: { fontSize: { xs: '1.25rem', sm: '1.5rem' }, ...iconProps.sx }, ...iconProps };
-  
-  switch (documentType) {
-    case 'passport':
-      return <PassportIcon {...baseProps} />;
-    case 'driving_license':
-      return <DescriptionIcon {...baseProps} />;
-    case 'us_green_card':
-      return <CreditCardIcon {...baseProps} />;
-    case 'id_card':
-    case 'ID Card':
-      return <BadgeIcon {...baseProps} />;
-    case 'aadhaar':
-      return <DescriptionIcon {...baseProps} />;
-    default:
-      return <DescriptionIcon {...baseProps} />;
-  }
-};
-
-const getDocumentTypeName = (documentType) => {
-  switch (documentType) {
-    case 'passport':
-      return 'Passport';
-    case 'driving_license':
-      return 'Driving License';
-    case 'us_green_card':
-      return 'US Green Card';
-    case 'id_card':
-    case 'ID Card':
-      return 'ID Card';
-    case 'aadhaar':
-      return 'Aadhaar Card';
-    default:
-      return documentType.charAt(0).toUpperCase() + documentType.slice(1).replace(/_/g, ' ');
-  }
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return 'Not available';
-  try {
-    return new Date(dateString).toLocaleDateString();
-  } catch {
-    return dateString;
-  }
-};
-
+// Main Dashboard component
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -142,7 +95,7 @@ const Dashboard = () => {
   const fetchDocuments = async () => {
     setDocumentsLoading(true);
     try {
-      const response = await axios.get('http://localhost:5001/api/documents');
+      const response = await axios.get('http://localhost:5003/api/v2/documents');
       // Ensure we're setting the documents array from the response
       setDocuments(response.data.documents || []);
       setError(null);
@@ -156,7 +109,7 @@ const Dashboard = () => {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5001/api/stats');
+      const response = await axios.get('http://localhost:5003/api/v2/stats');
       setStats(response.data);
       setError(null);
     } catch (err) {
@@ -169,7 +122,7 @@ const Dashboard = () => {
   const resetStats = async () => {
     setLoading(true);
     try {
-      await axios.post('http://localhost:5001/api/reset-stats');
+      await axios.post('http://localhost:5003/api/v2/reset-stats');
       fetchStats();
     } catch (err) {
       setError('Error resetting statistics: ' + err.message);
@@ -566,7 +519,7 @@ const Dashboard = () => {
           <Tooltip title="Refresh statistics">
             <Button 
               variant="contained" 
-              startIcon={<RefreshIcon />} 
+              startIcon={<RefreshIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />} 
               onClick={fetchStats}
               size="medium"
               sx={{ mr: { xs: 1, sm: 2 }, px: { xs: 2, sm: 3 } }}
@@ -578,7 +531,7 @@ const Dashboard = () => {
             <Button 
               variant="outlined" 
               color="error" 
-              startIcon={<DeleteIcon />} 
+              startIcon={<DeleteIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />} 
               onClick={resetStats}
               size="medium"
               sx={{ px: { xs: 2, sm: 3 } }}
@@ -1701,7 +1654,7 @@ const Dashboard = () => {
                         }, 100);
                       }}
                     >
-                      <DownloadIcon />
+                      <DownloadIcon sx={{ fontSize: { xs: 18, sm: 20, md: 22 } }} />
                     </IconButton>
                   </Tooltip>
                 )}

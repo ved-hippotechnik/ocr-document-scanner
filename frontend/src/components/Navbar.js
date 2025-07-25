@@ -81,12 +81,13 @@ const Navbar = () => {
               sx={{ 
                 color: '#007AFF',
                 mr: 1.5,
+                p: { xs: 1, sm: 1.5 },
                 '&:hover': {
                   backgroundColor: 'rgba(0, 122, 255, 0.1)',
                 },
               }}
             >
-              <DocumentScannerIcon />
+              <DocumentScannerIcon sx={{ fontSize: { xs: 20, sm: 24, md: 28 } }} />
             </IconButton>
             <Typography 
               variant="h6" 
@@ -107,7 +108,8 @@ const Navbar = () => {
               component={RouterLink}
               to="/"
               active={location.pathname === '/' ? 1 : 0}
-              startIcon={<DashboardIcon />}
+              startIcon={<DashboardIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
             >
               Dashboard
             </AppleNavButton>
@@ -115,7 +117,8 @@ const Navbar = () => {
               component={RouterLink}
               to="/scanner"
               active={location.pathname === '/scanner' ? 1 : 0}
-              startIcon={<DocumentScannerIcon />}
+              startIcon={<DocumentScannerIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
             >
               Scanner
             </AppleNavButton>

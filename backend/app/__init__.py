@@ -3,14 +3,39 @@ from flask_cors import CORS
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+from .celery_app import make_celery
 
 def create_app():
     app = Flask(__name__)
     
-    # Configuration
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
+    # Configuration with production security enforcement
+    secret_key = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
+    flask_env = os.environ.get('FLASK_ENV', 'development')
+    
+    # Enforce secure secrets in production
+    if flask_env == 'production':
+        if secret_key == 'dev-key-change-in-production':
+            raise ValueError("Production deployment requires a secure SECRET_KEY environment variable")
+        if len(secret_key) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long in production")
+    
+    app.config['SECRET_KEY'] = secret_key
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))  # 16MB
     app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', 'uploads')
+    
+    # JWT Configuration with enhanced security
+    jwt_secret = os.environ.get('JWT_SECRET_KEY', app.config['SECRET_KEY'])
+    if flask_env == 'production' and jwt_secret == secret_key:
+        raise ValueError("Production deployment requires a separate JWT_SECRET_KEY environment variable")
+    
+    app.config['JWT_SECRET_KEY'] = jwt_secret
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 86400))  # 24 hours
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = int(os.environ.get('JWT_REFRESH_TOKEN_EXPIRES', 2592000))  # 30 days
+    
+    # MCP Configuration
+    app.config['MCP_STORAGE_PATH'] = os.environ.get('MCP_STORAGE_PATH', 'mcp_storage')
+    app.config['MCP_MAX_MEMORY_SIZE'] = int(os.environ.get('MCP_MAX_MEMORY_SIZE', 10000))
+    app.config['MCP_MEMORY_PERSISTENCE_PATH'] = os.environ.get('MCP_MEMORY_PERSISTENCE_PATH', 'mcp_storage/memory.pkl')
     
     # Database configuration
     database_url = os.environ.get('DATABASE_URL')
@@ -51,6 +76,90 @@ def create_app():
     from .database import init_db
     init_db(app)
     
+    # Initialize JWT manager
+    from .auth import jwt_manager
+    jwt_manager.init_app(app)
+    
+    # Initialize WebSocket (temporarily disabled for basic setup)
+    # from .websocket import init_websocket
+    # socketio = init_websocket(app)
+    socketio = None
+    
+    # Initialize Enhanced OCR System
+    app.logger.info("Initializing Enhanced OCR System...")
+    try:
+        from .enhanced_ocr_complete import EnhancedOCRSystem
+        app.enhanced_ocr = EnhancedOCRSystem()
+        app.logger.info("✅ Enhanced OCR System initialized successfully")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize Enhanced OCR System: {e}")
+        app.enhanced_ocr = None
+    
+    # Initialize ML Document Classifier
+    try:
+        from .ml_document_classifier import MLDocumentClassifier
+        app.ml_classifier = MLDocumentClassifier()
+        app.logger.info("✅ ML Document Classifier initialized")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize ML Classifier: {e}")
+        app.ml_classifier = None
+    
+    # Initialize Security Validator
+    try:
+        from .security_validator import DocumentSecurityValidator
+        app.security_validator = DocumentSecurityValidator()
+        app.logger.info("✅ Security Validator initialized")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize Security Validator: {e}")
+        app.security_validator = None
+    
+    # Initialize Analytics Dashboard
+    try:
+        from .analytics_dashboard import AnalyticsDashboard
+        app.analytics_dashboard = AnalyticsDashboard()
+        app.logger.info("✅ Analytics Dashboard initialized")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize Analytics Dashboard: {e}")
+        app.analytics_dashboard = None
+    
+    # Initialize Performance Optimizer
+    try:
+        from .performance_optimizer import PerformanceOptimizer
+        app.performance_optimizer = PerformanceOptimizer()
+        app.logger.info("✅ Performance Optimizer initialized")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize Performance Optimizer: {e}")
+        app.performance_optimizer = None
+    
+    # Initialize MCP Servers
+    try:
+        from .mcp.routes import init_mcp_servers, mcp_bp
+        init_mcp_servers(app)
+        app.logger.info("✅ MCP Servers initialized")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize MCP Servers: {e}")
+    
+    # Initialize Celery
+    celery = make_celery(app)
+    app.celery = celery
+    
+    # Store celery instance globally
+    from . import celery_app as celery_module
+    celery_module.celery_app = celery
+    
+    # Initialize task services
+    from .tasks import init_task_services
+    init_task_services(app)
+    app.logger.info("✅ Celery and async tasks initialized")
+    
+    # Initialize API documentation
+    try:
+        from .api_docs import init_api_docs
+        init_api_docs(app)
+        app.logger.info("✅ API documentation initialized")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to initialize API documentation: {e}")
+    
     # Logging Configuration
     if not app.debug and not app.testing:
         log_level = getattr(logging, os.environ.get('LOG_LEVEL', 'INFO').upper())
@@ -68,9 +177,9 @@ def create_app():
         app.logger.setLevel(log_level)
         app.logger.info('OCR Document Scanner startup')
     
-    # Initialize monitoring
-    from .monitoring import setup_metrics
-    setup_metrics(app)
+    # Initialize monitoring (temporarily disabled for basic setup)
+    # from . import monitoring
+    # monitoring.setup_metrics(app)
     
     # Initialize document processors
     from .processors import registry  # This will initialize all processors
@@ -78,9 +187,33 @@ def create_app():
     # Register blueprints
     from .routes import main as main_blueprint
     from .routes_enhanced import enhanced as enhanced_blueprint
+    from .routes_enhanced_v2 import enhanced_v2 as enhanced_v2_blueprint
+    # from .routes_ai_enhanced import ai_enhanced_bp
+    from .auth import auth_bp
+    from .analytics import analytics_bp
+    from .ai import ai_bp
+    from .batch import batch_bp
+    from .routes_async import async_bp
     
     app.register_blueprint(main_blueprint)
     app.register_blueprint(enhanced_blueprint)
+    app.register_blueprint(enhanced_v2_blueprint)
+    # app.register_blueprint(ai_enhanced_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(analytics_bp)
+    app.register_blueprint(ai_bp)
+    app.register_blueprint(batch_bp)
+    app.register_blueprint(async_bp)
+    
+    # Register MCP blueprint if initialized
+    try:
+        from .mcp.routes import mcp_bp
+        app.register_blueprint(mcp_bp)
+    except Exception as e:
+        app.logger.warning(f"MCP blueprint not registered: {e}")
+    
+    # Register documented API routes (already includes all endpoints with documentation)
+    # The api_docs module handles all the routing with Swagger UI
     
     # Root endpoint - API Documentation
     @app.route('/')
@@ -109,6 +242,7 @@ def create_app():
                 <p><strong>Status:</strong> <span class="status">✅ OPERATIONAL</span></p>
                 <p><strong>Version:</strong> 2.0.0</p>
                 <p><strong>Base URL:</strong> <code>http://localhost:5002</code></p>
+                <p><strong>📚 Interactive API Documentation:</strong> <a href="/api/v2/docs" target="_blank">/api/v2/docs</a></p>
                 
                 <h2>📋 Available Document Types</h2>
                 <div class="feature">🇦🇪 Emirates ID Card (UAE)</div>
@@ -189,4 +323,4 @@ def create_app():
             'total_processors': len(processor_registry.processors)
         }
     
-    return app
+    return app, socketio
