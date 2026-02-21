@@ -405,9 +405,20 @@ def auto_train_classifier():
 
 @ai_bp.route('/model/status', methods=['GET'])
 def get_model_status():
-    """Get current model status including training state and accuracy."""
+    """Get current model status including training state, accuracy, and vision availability."""
     try:
+        from flask import current_app
+
         metrics = document_classifier.get_performance_metrics()
+        vision_service = getattr(current_app, 'vision_service', None)
+
+        # Build classifier chain description
+        classifier_chain = []
+        if vision_service is not None:
+            classifier_chain.append('vision')
+        if document_classifier.is_fitted:
+            classifier_chain.append('ml')
+        classifier_chain.append('rule_based')
 
         return jsonify({
             'success': True,
@@ -415,7 +426,10 @@ def get_model_status():
             'model_path': document_classifier.model_path,
             'confidence_threshold': document_classifier.confidence_threshold,
             'supported_types': len(document_classifier.document_types) - 1,
-            'performance_metrics': metrics
+            'performance_metrics': metrics,
+            'vision_available': vision_service is not None,
+            'vision_model': getattr(vision_service, 'model', None) if vision_service else None,
+            'classifier_chain': classifier_chain,
         })
 
     except Exception as e:
@@ -475,3 +489,154 @@ def health_check():
             'status': 'unhealthy',
             'error': str(e)
         }), 500
+
+
+# ------------------------------------------------------------------
+# Vision-specific endpoints
+# ------------------------------------------------------------------
+
+@ai_bp.route('/vision/classify', methods=['POST'])
+@token_required
+def vision_classify_document():
+    """
+    Classify document type using Claude Vision only.
+    Useful for A/B testing or when you specifically want VLM classification.
+    """
+    try:
+        from flask import current_app
+
+        vision_service = getattr(current_app, 'vision_service', None)
+        if vision_service is None:
+            return jsonify({
+                'success': False,
+                'error': 'Claude Vision service is not configured. Set ANTHROPIC_API_KEY.'
+            }), 503
+
+        image_data = _extract_image_data()
+        if image_data is None:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        result = vision_service.classify_document(image_data)
+
+        return jsonify({
+            'success': True,
+            'cached': False,
+            **result,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+    except Exception as e:
+        logger.error(f"Vision classification failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ai_bp.route('/vision/extract', methods=['POST'])
+@token_required
+def vision_extract_fields():
+    """
+    Extract document fields directly using Claude Vision (no Tesseract).
+    Useful for handwritten documents, damaged images, or when OCR struggles.
+    """
+    try:
+        from flask import current_app
+
+        vision_service = getattr(current_app, 'vision_service', None)
+        if vision_service is None:
+            return jsonify({
+                'success': False,
+                'error': 'Claude Vision service is not configured. Set ANTHROPIC_API_KEY.'
+            }), 503
+
+        image_data = _extract_image_data()
+        if image_data is None:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        # Document type can be provided or auto-detected
+        document_type = (
+            request.form.get('document_type')
+            or (request.get_json() or {}).get('document_type')
+        )
+
+        # Auto-classify if type not provided
+        if not document_type:
+            classification = vision_service.classify_document(image_data)
+            document_type = classification.get('document_type', 'unknown')
+
+        result = vision_service.extract_fields_direct(image_data, document_type)
+
+        return jsonify({
+            'success': True,
+            'document_type': document_type,
+            'extracted_info': result,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+    except Exception as e:
+        logger.error(f"Vision extraction failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ai_bp.route('/vision/validate', methods=['POST'])
+@token_required
+def vision_validate_fields():
+    """
+    Validate/correct previously extracted fields against the document image.
+    Send the image and the extracted_info dict; returns corrections.
+    """
+    try:
+        from flask import current_app
+
+        vision_service = getattr(current_app, 'vision_service', None)
+        if vision_service is None:
+            return jsonify({
+                'success': False,
+                'error': 'Claude Vision service is not configured. Set ANTHROPIC_API_KEY.'
+            }), 503
+
+        image_data = _extract_image_data()
+        if image_data is None:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        # Extracted fields must be provided as JSON
+        if not request.is_json:
+            return jsonify({'error': 'JSON body with extracted_info required'}), 400
+
+        data = request.get_json()
+        extracted_info = data.get('extracted_info', {})
+        document_type = data.get('document_type', 'unknown')
+
+        if not extracted_info:
+            return jsonify({'error': 'extracted_info is required'}), 400
+
+        result = vision_service.validate_extracted_fields(
+            image_data, extracted_info, document_type
+        )
+
+        return jsonify({
+            'success': True,
+            **result,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+    except Exception as e:
+        logger.error(f"Vision validation failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _extract_image_data():
+    """Helper to extract image bytes from multipart or JSON request."""
+    if 'image' in request.files:
+        file = request.files['image']
+        if file.filename == '':
+            return None
+        return file.read()
+
+    if request.is_json:
+        data = request.get_json()
+        image_b64 = data.get('image')
+        if image_b64:
+            if ',' in image_b64:
+                image_b64 = image_b64.split(',')[1]
+            return base64.b64decode(image_b64)
+
+    return None

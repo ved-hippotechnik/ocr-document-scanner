@@ -248,7 +248,8 @@ def scan_document_v3():
                 }), 400
             
             # Process with specific processor
-            result = processor.process(img)
+            validate_vision = params.get('validate_with_vision', False)
+            result = processor.process(img, validate_with_vision=validate_vision)
             
             # Validate extracted data
             if params.get('validate_document', True):

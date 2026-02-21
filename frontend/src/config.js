@@ -42,6 +42,10 @@ const config = {
     aiSupportedTypes: `${API_URL}/api/ai/supported-types`,
     aiFeedback: `${API_URL}/api/ai/feedback`,
     aiConfidenceThreshold: `${API_URL}/api/ai/confidence-threshold`,
+    aiModelStatus: `${API_URL}/api/ai/model/status`,
+    aiVisionClassify: `${API_URL}/api/ai/vision/classify`,
+    aiVisionExtract: `${API_URL}/api/ai/vision/extract`,
+    aiVisionValidate: `${API_URL}/api/ai/vision/validate`,
     
     // Analytics
     analyticsDashboard: `${API_URL}/api/analytics/dashboard`,

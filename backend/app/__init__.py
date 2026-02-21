@@ -142,6 +142,22 @@ def create_app():
         app.logger.error(f"❌ Failed to initialize ML Classifier: {e}")
         app.ml_classifier = None
     
+    # Initialize Claude Vision Service
+    if os.environ.get('ANTHROPIC_API_KEY'):
+        try:
+            from .ai.vision_service import ClaudeVisionService
+            app.vision_service = ClaudeVisionService(
+                api_key=os.environ['ANTHROPIC_API_KEY'],
+                model=os.environ.get('VISION_MODEL', 'claude-sonnet-4-20250514')
+            )
+            app.logger.info("✅ Claude Vision Service initialized")
+        except Exception as e:
+            app.logger.error(f"❌ Failed to initialize Vision Service: {e}")
+            app.vision_service = None
+    else:
+        app.vision_service = None
+        app.logger.info("ℹ️ Claude Vision Service disabled (no ANTHROPIC_API_KEY)")
+
     # Initialize Security Validator
     try:
         from .security_validator import DocumentSecurityValidator

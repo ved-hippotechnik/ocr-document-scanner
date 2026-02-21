@@ -822,6 +822,9 @@ def scan_document():
     if language and not validate_language(language):
         language = None  # Fall back to auto-detect if invalid
 
+    # Read optional Vision validation toggle
+    validate_with_vision = request.form.get('validate_with_vision', 'false').lower() == 'true'
+
     # Initial OCR scan to detect document type
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     initial_text = pytesseract.image_to_string(gray)
@@ -835,7 +838,7 @@ def scan_document():
         print(f"DEBUG: Detected document type: {doc_display_name} using {processor.__class__.__name__}")
         
         # Use the specific processor to extract information
-        doc_info = processor.process(img, language=language)
+        doc_info = processor.process(img, language=language, validate_with_vision=validate_with_vision)
         
         # Update document type for statistics
         doc_type = processor.document_type.replace('_passport', '').replace('_', '_')

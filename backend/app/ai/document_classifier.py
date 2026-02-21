@@ -287,7 +287,11 @@ class DocumentClassifier:
     def classify_document(self, image_data: bytes) -> Dict:
         """
         Classify document type from image.
-        Falls back to rule-based classification when ML model is not trained.
+
+        Classification chain:
+        1. Claude Vision (if ANTHROPIC_API_KEY configured)
+        2. ML model (if trained/fitted)
+        3. Rule-based fallback (OCR + processor registry)
 
         Args:
             image_data: Raw image bytes
@@ -295,64 +299,68 @@ class DocumentClassifier:
         Returns:
             Dictionary containing classification results
         """
-        try:
-            if self.model is None:
-                return {
-                    'document_type': 'unknown',
-                    'confidence': 0.0,
-                    'error': 'Model not loaded',
-                    'timestamp': datetime.now().isoformat()
-                }
-
-            # If model is not trained, use rule-based fallback
-            if not self.is_fitted:
-                logger.info("ML model not trained, falling back to rule-based classification")
-                return self._classify_rule_based(image_data)
-
-            # Extract features
-            features = self.extract_features(image_data)
-
-            # Scale features
-            if self.scaler is not None and hasattr(self.scaler, 'mean_'):
-                features = self.scaler.transform(features.reshape(1, -1))
-            else:
-                features = features.reshape(1, -1)
-
-            # Predict
-            prediction = self.model.predict(features)[0]
-            probabilities = self.model.predict_proba(features)[0]
-
-            # Get confidence score
-            confidence = np.max(probabilities)
-
-            # Map prediction to document type
-            document_type = prediction if prediction in self.document_types else 'unknown'
-
-            # Generate classification results
-            result = {
-                'document_type': document_type,
-                'document_name': self.document_types.get(document_type, 'Unknown Document'),
-                'confidence': float(confidence),
-                'all_probabilities': {
-                    doc_type: float(prob) for doc_type, prob in
-                    zip(self.model.classes_, probabilities)
-                },
-                'is_confident': confidence >= self.confidence_threshold,
-                'classifier': 'ml',
-                'timestamp': datetime.now().isoformat(),
-                'feature_count': len(features.flatten())
-            }
-
-            # Update performance metrics
+        # 1. Try Claude Vision first
+        vision_result = self._classify_with_vision(image_data)
+        if vision_result and vision_result.get('confidence', 0) > 0.5:
             self.performance_metrics['total_classifications'] += 1
+            vision_result['timestamp'] = datetime.now().isoformat()
+            logger.info(
+                f"Vision classified as {vision_result['document_type']} "
+                f"with confidence {vision_result['confidence']:.2f}"
+            )
+            return vision_result
 
-            logger.info(f"Document classified as {document_type} with confidence {confidence:.2f}")
+        # 2. Try ML model
+        try:
+            if self.model is not None and self.is_fitted:
+                features = self.extract_features(image_data)
+                if self.scaler is not None and hasattr(self.scaler, 'mean_'):
+                    features = self.scaler.transform(features.reshape(1, -1))
+                else:
+                    features = features.reshape(1, -1)
 
-            return result
+                prediction = self.model.predict(features)[0]
+                probabilities = self.model.predict_proba(features)[0]
+                confidence = np.max(probabilities)
+                document_type = prediction if prediction in self.document_types else 'unknown'
 
+                result = {
+                    'document_type': document_type,
+                    'document_name': self.document_types.get(document_type, 'Unknown Document'),
+                    'confidence': float(confidence),
+                    'all_probabilities': {
+                        doc_type: float(prob) for doc_type, prob in
+                        zip(self.model.classes_, probabilities)
+                    },
+                    'is_confident': confidence >= self.confidence_threshold,
+                    'classifier': 'ml',
+                    'timestamp': datetime.now().isoformat(),
+                    'feature_count': len(features.flatten())
+                }
+                self.performance_metrics['total_classifications'] += 1
+                logger.info(f"ML classified as {document_type} with confidence {confidence:.2f}")
+                return result
         except Exception as e:
-            logger.error(f"ML classification failed: {e}, falling back to rule-based")
-            return self._classify_rule_based(image_data)
+            logger.warning(f"ML classification failed: {e}")
+
+        # 3. Fall back to rule-based
+        logger.info("Falling back to rule-based classification")
+        return self._classify_rule_based(image_data)
+
+    def _classify_with_vision(self, image_data: bytes) -> Optional[Dict]:
+        """Attempt classification via Claude Vision service."""
+        try:
+            from flask import current_app
+            vision_service = getattr(current_app, 'vision_service', None)
+            if vision_service is None:
+                return None
+            return vision_service.classify_document(image_data)
+        except RuntimeError:
+            # Outside Flask app context (e.g., tests)
+            return None
+        except Exception as e:
+            logger.warning(f"Vision classification failed: {e}")
+            return None
 
     def _classify_rule_based(self, image_data: bytes) -> Dict:
         """Rule-based fallback classification using OCR text and processor detection"""

@@ -24,9 +24,11 @@ import {
   Rating,
   Tooltip,
   FormControl,
+  FormControlLabel,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Switch
 } from '@mui/material';
 import {
   CloudUpload,
@@ -41,7 +43,8 @@ import {
   Psychology,
   Analytics,
   Security,
-  Language
+  Language,
+  Visibility
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { toast } from 'react-toastify';
@@ -56,9 +59,12 @@ const AIScanner = () => {
   const [recommendations, setRecommendations] = useState([]);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [availableLanguages, setAvailableLanguages] = useState([]);
+  const [visionEnabled, setVisionEnabled] = useState(false);
+  const [visionAvailable, setVisionAvailable] = useState(false);
   const wsCleanupRef = useRef(null);
 
   useEffect(() => {
+    // Fetch available languages
     fetch(`${API_URL}/api/languages`)
       .then(res => res.json())
       .then(data => {
@@ -69,6 +75,16 @@ const AIScanner = () => {
       .catch(() => {
         setAvailableLanguages([{ code: 'eng', name: 'English' }]);
       });
+
+    // Check if Vision service is available
+    fetch(`${API_URL}/api/ai/model/status`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.vision_available) {
+          setVisionAvailable(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const onDrop = useCallback((acceptedFiles) => {
@@ -126,6 +142,9 @@ const AIScanner = () => {
       formData.append('session_id', sessionId);
       if (selectedLanguage && selectedLanguage !== 'auto') {
         formData.append('language', selectedLanguage);
+      }
+      if (visionEnabled) {
+        formData.append('validate_with_vision', 'true');
       }
       
       // Call AI-enhanced scan endpoint
@@ -292,6 +311,26 @@ const AIScanner = () => {
               Select the document language for better OCR accuracy
             </Typography>
           </Box>
+
+          {/* Vision Enhancement Toggle */}
+          {visionAvailable && (
+            <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Visibility color="action" />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={visionEnabled}
+                    onChange={(e) => setVisionEnabled(e.target.checked)}
+                    color="secondary"
+                  />
+                }
+                label="Enhance with AI Vision"
+              />
+              <Tooltip title="Uses Claude Vision AI to validate and correct OCR-extracted fields. Improves accuracy but may take a few extra seconds.">
+                <Info fontSize="small" color="action" sx={{ cursor: 'help' }} />
+              </Tooltip>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
@@ -321,8 +360,17 @@ const AIScanner = () => {
             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Psychology color="primary" />
               AI Classification
+              {classification.classifier === 'vision' && (
+                <Chip label="AI Vision" size="small" color="secondary" icon={<Visibility />} />
+              )}
+              {classification.classifier === 'ml' && (
+                <Chip label="ML Model" size="small" color="info" />
+              )}
+              {classification.classifier === 'rule_based' && (
+                <Chip label="Rule-based" size="small" color="default" />
+              )}
             </Typography>
-            
+
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
@@ -340,7 +388,7 @@ const AIScanner = () => {
                   </Typography>
                 </Paper>
               </Grid>
-              
+
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
                   <Typography variant="subtitle1" gutterBottom>
@@ -362,6 +410,23 @@ const AIScanner = () => {
                 </Paper>
               </Grid>
             </Grid>
+
+            {/* Vision reasoning */}
+            {classification.reasoning && (
+              <Accordion sx={{ mt: 2 }}>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Typography variant="body2">
+                    <Visibility fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+                    Vision Reasoning
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Typography variant="body2" color="text.secondary">
+                    {classification.reasoning}
+                  </Typography>
+                </AccordionDetails>
+              </Accordion>
+            )}
           </CardContent>
         </Card>
       )}
@@ -445,24 +510,48 @@ const AIScanner = () => {
       {results && (
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               Extracted Information
+              {results.extracted_data?.vision_validated && (
+                <Chip label="Vision Verified" size="small" color="secondary" icon={<Visibility />} />
+              )}
+              {results.extracted_data?.vision_assisted && (
+                <Chip label="Vision Assisted" size="small" color="info" icon={<Visibility />} />
+              )}
             </Typography>
-            
+
+            {/* Vision Corrections */}
+            {results.extracted_data?.vision_corrections?.length > 0 && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  AI Vision corrected {results.extracted_data.vision_corrections.length} field(s):
+                </Typography>
+                {results.extracted_data.vision_corrections.map((c, i) => (
+                  <Typography key={i} variant="body2">
+                    <strong>{c.field}</strong>: {c.original} → {c.corrected} ({c.reason})
+                  </Typography>
+                ))}
+              </Alert>
+            )}
+
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography>Document Data</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Grid container spacing={2}>
-                  {Object.entries(results.extracted_data || {}).map(([key, value]) => (
+                  {Object.entries(results.extracted_data || {}).filter(([key]) =>
+                    !['vision_validated', 'vision_corrections', 'vision_confidence',
+                      'vision_missing_fields', 'vision_assisted', 'vision_notes',
+                      'processing_method', 'country_code', 'processor'].includes(key)
+                  ).map(([key, value]) => (
                     <Grid item xs={12} md={6} key={key}>
                       <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
                         <Typography variant="subtitle2" color="primary">
                           {key.replace(/_/g, ' ').toUpperCase()}
                         </Typography>
                         <Typography variant="body1">
-                          {value || 'Not found'}
+                          {typeof value === 'object' ? JSON.stringify(value) : (value || 'Not found')}
                         </Typography>
                       </Paper>
                     </Grid>
