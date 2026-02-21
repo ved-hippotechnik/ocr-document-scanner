@@ -2,21 +2,21 @@
 Authentication routes for user management
 """
 from flask import Blueprint, request, jsonify, current_app
-from werkzeug.security import generate_password_hash
 from datetime import datetime, timedelta, timezone
 import re
 import secrets
-from ..models.user import User, ApiKey, PasswordReset, LoginAttempt, UserRole
-from ..database import db
+from ..database import db, User, LoginAttempt
 from .jwt_utils import (
     jwt_manager, token_required, admin_required, 
     log_login_attempt, is_account_locked
 )
 from ..validation import validate_email, validate_password, ProcessingError
+from ..rate_limiter import ratelimit_auth, ratelimit_light
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 @auth_bp.route('/register', methods=['POST'])
+@ratelimit_auth()
 def register():
     """Register a new user"""
     try:
@@ -55,7 +55,7 @@ def register():
             first_name=data.get('first_name', '').strip(),
             last_name=data.get('last_name', '').strip(),
             organization=data.get('organization', '').strip(),
-            role=UserRole.USER
+            # role=UserRole.USER
         )
         user.set_password(password)
         
@@ -85,6 +85,7 @@ def register():
         return jsonify({'error': 'Registration failed'}), 500
 
 @auth_bp.route('/login', methods=['POST'])
+@ratelimit_auth()
 def login():
     """Authenticate user and return JWT tokens"""
     try:
@@ -274,7 +275,9 @@ def create_api_key():
             return jsonify({'error': 'Maximum API keys limit reached'}), 400
         
         # Generate new API key
-        api_key_value = ApiKey.generate_key()
+        # ApiKey functionality temporarily disabled
+        return jsonify({'error': 'API key functionality temporarily disabled'}), 503
+        # api_key_value = ApiKey.generate_key()
         
         api_key = ApiKey(
             user_id=user.id,
@@ -345,7 +348,9 @@ def forgot_password():
         # Always return success to prevent email enumeration
         if user and user.is_active:
             # Generate reset token
-            token = PasswordReset.generate_token()
+            # Password reset functionality temporarily disabled
+            return jsonify({'error': 'Password reset functionality temporarily disabled'}), 503
+            # token = PasswordReset.generate_token()
             expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
             
             reset = PasswordReset(

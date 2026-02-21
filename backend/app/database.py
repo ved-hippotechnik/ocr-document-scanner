@@ -3,11 +3,93 @@ Database models and configuration for OCR Document Scanner
 """
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from werkzeug.security import generate_password_hash, check_password_hash
 import json
 
 db = SQLAlchemy()
 migrate = Migrate()
+
+class User(db.Model):
+    """Model for storing user information"""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    first_name = db.Column(db.String(100), default='')
+    last_name = db.Column(db.String(100), default='')
+    organization = db.Column(db.String(200), default='')
+    role = db.Column(db.String(20), default='user')  # 'user', 'admin', 'api_only'
+    is_active = db.Column(db.Boolean, default=True)
+    last_login = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    def set_password(self, password):
+        """Hash and set user password"""
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        """Verify password against stored hash"""
+        return check_password_hash(self.password_hash, password)
+
+    def is_admin(self):
+        """Check if user has admin role"""
+        return self.role == 'admin'
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'organization': self.organization,
+            'role': self.role,
+            'is_active': self.is_active,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class LoginAttempt(db.Model):
+    """Model for tracking login attempts"""
+    __tablename__ = 'login_attempts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False, index=True)
+    ip_address = db.Column(db.String(45), nullable=False)
+    user_agent = db.Column(db.String(500))
+    success = db.Column(db.Boolean, nullable=False)
+    attempted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+
+    # Relationships
+    user = db.relationship('User', backref='login_attempts')
+
+    @staticmethod
+    def is_account_locked(email, max_attempts=5, lockout_minutes=15):
+        """Check if account is locked due to too many failed attempts"""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=lockout_minutes)
+        failed_count = LoginAttempt.query.filter(
+            LoginAttempt.email == email,
+            LoginAttempt.success == False,
+            LoginAttempt.attempted_at >= cutoff
+        ).count()
+        return failed_count >= max_attempts
+
+    @staticmethod
+    def get_failed_attempts(email, minutes=15):
+        """Get count of failed attempts in the last N minutes"""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        return LoginAttempt.query.filter(
+            LoginAttempt.email == email,
+            LoginAttempt.success == False,
+            LoginAttempt.attempted_at >= cutoff
+        ).count()
 
 class ScanHistory(db.Model):
     """Model for storing scan history and results"""
@@ -119,7 +201,7 @@ class BatchProcessingJob(db.Model):
     priority = db.Column(db.Integer, default=0)  # Higher number = higher priority
     processing_time = db.Column(db.Float)
     error_message = db.Column(db.Text)
-    metadata = db.Column(db.Text)  # JSON string for additional data
+    job_metadata = db.Column(db.Text)  # JSON string for additional data
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
@@ -143,7 +225,7 @@ class BatchProcessingJob(db.Model):
             'priority': self.priority,
             'processing_time': self.processing_time,
             'error_message': self.error_message,
-            'metadata': json.loads(self.metadata) if self.metadata else None,
+            'metadata': json.loads(self.job_metadata) if self.job_metadata else None,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,

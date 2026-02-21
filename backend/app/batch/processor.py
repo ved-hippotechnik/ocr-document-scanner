@@ -15,18 +15,11 @@ import asyncio
 from enum import Enum
 
 from ..database import db
-from ..models.analytics import BatchProcessingJob
-# from ..websocket import notify_processing_progress, notify_user
-
-# Temporary stub functions for websocket notifications
-def notify_processing_progress(*args, **kwargs):
-    pass
-
-def notify_user(*args, **kwargs):
-    pass
+from ..database import BatchProcessingJob
+from ..websocket import notify_processing_progress, notify_processing_complete
 from ..ai.document_classifier import DocumentClassifier
 from ..processors import processor_registry
-from ..cache import cache_manager
+from ..cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +186,7 @@ class BatchJobManager:
             db.session.commit()
             
             # Send completion notification
-            notify_user(job.user_id, {
+            notify_processing_complete(job.job_id, {
                 'type': 'batch_complete',
                 'job_id': job.job_id,
                 'total_processed': len(job.documents),
@@ -218,7 +211,8 @@ class BatchJobManager:
             db.session.commit()
             
             # Send failure notification
-            notify_user(job.user_id, {
+            from ..websocket import notify_processing_error
+            notify_processing_error(job.job_id, {
                 'type': 'batch_failed',
                 'job_id': job.job_id,
                 'error': str(e)
@@ -248,7 +242,7 @@ class BatchJobManager:
             
             # Check cache first
             cache_key = f"batch_process:{image_hash}"
-            cached_result = cache_manager.get(cache_key)
+            cached_result = get_cache().get(cache_key) if get_cache() else None
             
             if cached_result:
                 logger.info(f"Using cached result for document {document['id']}")
@@ -292,7 +286,8 @@ class BatchJobManager:
             }
             
             # Cache result
-            cache_manager.set(cache_key, result, ttl=3600)
+            if get_cache():
+                get_cache().set(cache_key, result, ttl=3600)
             
             return result
             

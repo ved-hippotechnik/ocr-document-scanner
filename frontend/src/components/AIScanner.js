@@ -1,4 +1,7 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { API_URL } from '../config';
+import { validateFile, showValidationError, clearValidationError } from '../utils/validation';
+import { connectSession } from '../utils/websocket';
 import {
   Box,
   Button,
@@ -19,7 +22,11 @@ import {
   AccordionSummary,
   AccordionDetails,
   Rating,
-  Tooltip
+  Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   CloudUpload,
@@ -33,7 +40,8 @@ import {
   ExpandMore,
   Psychology,
   Analytics,
-  Security
+  Security,
+  Language
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { toast } from 'react-toastify';
@@ -46,20 +54,46 @@ const AIScanner = () => {
   const [classification, setClassification] = useState(null);
   const [qualityAssessment, setQualityAssessment] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
+  const [selectedLanguage, setSelectedLanguage] = useState('auto');
+  const [availableLanguages, setAvailableLanguages] = useState([]);
+  const wsCleanupRef = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/languages`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setAvailableLanguages(data.languages);
+        }
+      })
+      .catch(() => {
+        setAvailableLanguages([{ code: 'eng', name: 'English' }]);
+      });
+  }, []);
 
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) {
-      processDocument(acceptedFiles[0]);
+      const file = acceptedFiles[0];
+      const validation = validateFile(file);
+      
+      if (!validation.isValid) {
+        toast.error(validation.error);
+        return;
+      }
+      
+      processDocument(file);
     }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
+      'image/*': ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.gif', '.webp'],
+      'application/pdf': ['.pdf']
     },
     maxFiles: 1,
-    maxSize: 10 * 1024 * 1024 // 10MB
+    maxSize: 50 * 1024 * 1024, // 50MB - consistent with validation utility
+    multiple: false
   });
 
   const processDocument = async (file) => {
@@ -80,17 +114,27 @@ const AIScanner = () => {
       // Setup WebSocket for real-time updates
       setupWebSocket(sessionId);
       
+      // Create FormData for file upload
+      const formData = new FormData();
+      // Convert base64 to blob
+      const base64Response = await fetch(base64);
+      const blob = await base64Response.blob();
+      formData.append('image', blob, file.name);
+      formData.append('document_type', 'auto');
+      formData.append('quality_check', 'true');
+      formData.append('validate_document', 'true');
+      formData.append('session_id', sessionId);
+      if (selectedLanguage && selectedLanguage !== 'auto') {
+        formData.append('language', selectedLanguage);
+      }
+      
       // Call AI-enhanced scan endpoint
-      const response = await fetch('/api/v3/scan', {
+      const response = await fetch(`${API_URL}/api/v3/scan`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
           'X-Session-ID': sessionId
         },
-        body: JSON.stringify({
-          image: base64
-        })
+        body: formData
       });
 
       if (!response.ok) {
@@ -120,38 +164,43 @@ const AIScanner = () => {
   };
 
   const setupWebSocket = (sessionId) => {
-    // WebSocket setup for real-time progress updates
-    // This would connect to your WebSocket server
-    // For now, we'll simulate progress updates
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + 10;
-      });
-    }, 500);
+    // Clean up any previous session
+    if (wsCleanupRef.current) {
+      wsCleanupRef.current();
+    }
 
-    // Simulate processing stages
-    const stages = [
-      'Analyzing document type...',
-      'Selecting optimal processor...',
-      'Extracting text and data...',
-      'Assessing extraction quality...',
-      'Finalizing results...'
-    ];
-    
-    let stageIndex = 0;
-    const stageInterval = setInterval(() => {
-      if (stageIndex < stages.length) {
-        setProcessingStage(stages[stageIndex]);
-        stageIndex++;
-      } else {
-        clearInterval(stageInterval);
-      }
-    }, 1000);
+    const cleanup = connectSession(sessionId, {
+      onStart: (data) => {
+        setProcessingStage(data?.message || 'Processing started...');
+      },
+      onProgress: (data) => {
+        if (data?.progress != null) {
+          setProgress(Math.min(data.progress, 95));
+        }
+        if (data?.message) {
+          setProcessingStage(data.message);
+        }
+      },
+      onComplete: (data) => {
+        setProgress(100);
+        setProcessingStage('Processing complete');
+      },
+      onError: (data) => {
+        setProcessingStage(`Error: ${data?.error || 'Unknown error'}`);
+      },
+    });
+
+    wsCleanupRef.current = cleanup;
   };
+
+  // Clean up WebSocket on unmount
+  useEffect(() => {
+    return () => {
+      if (wsCleanupRef.current) {
+        wsCleanupRef.current();
+      }
+    };
+  }, []);
 
   const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -216,7 +265,31 @@ const AIScanner = () => {
               {isDragActive ? 'Drop the document here' : 'Drag & drop a document or click to browse'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Supports JPG, PNG, TIFF, BMP (max 10MB)
+              Supports JPG, PNG, TIFF, BMP, GIF, WebP, PDF (max 50MB)
+            </Typography>
+          </Box>
+
+          {/* Language Selector */}
+          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Language color="action" />
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel id="language-select-label">OCR Language</InputLabel>
+              <Select
+                labelId="language-select-label"
+                value={selectedLanguage}
+                label="OCR Language"
+                onChange={(e) => setSelectedLanguage(e.target.value)}
+              >
+                <MenuItem value="auto">Auto-detect</MenuItem>
+                {availableLanguages.map((lang) => (
+                  <MenuItem key={lang.code} value={lang.code}>
+                    {lang.name} ({lang.code})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="text.secondary">
+              Select the document language for better OCR accuracy
             </Typography>
           </Box>
         </CardContent>

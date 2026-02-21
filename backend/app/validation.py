@@ -538,19 +538,52 @@ class SecurityValidator:
         if not path:
             return True
         
+        import os
+        import urllib.parse
+        
+        # Decode URL-encoded characters multiple times to catch nested encoding
+        decoded_path = path
+        for _ in range(3):
+            try:
+                decoded_path = urllib.parse.unquote(decoded_path)
+            except:
+                pass
+        
+        # Normalize the path
+        normalized = os.path.normpath(decoded_path)
+        
+        # Check for dangerous patterns in both original and decoded paths
         dangerous_patterns = [
             '../',
             '..\\',
             '..%2f',
-            '..%5c',
+            '..%5c', 
             '%2e%2e%2f',
-            '%2e%2e%5c'
+            '%2e%2e%5c',
+            '..%252f',
+            '..%255c',
+            '..%c0%af',
+            '..%c1%9c'
         ]
         
-        path_lower = path.lower()
-        for pattern in dangerous_patterns:
-            if pattern in path_lower:
+        paths_to_check = [path.lower(), decoded_path.lower(), normalized.lower()]
+        
+        for check_path in paths_to_check:
+            for pattern in dangerous_patterns:
+                if pattern in check_path:
+                    return False
+            
+            # Check for absolute paths
+            if check_path.startswith('/') or check_path.startswith('\\'):
                 return False
+            
+            # Check for drive letters (Windows)
+            if len(check_path) > 1 and check_path[1] == ':':
+                return False
+        
+        # Check if normalized path tries to go outside current directory
+        if normalized.startswith('..') or normalized.startswith('/'):
+            return False
         
         return True
 

@@ -5,7 +5,7 @@ Async processing routes using Celery
 from flask import Blueprint, request, jsonify, current_app
 import logging
 from typing import Dict, Any
-from .auth.jwt_utils import jwt_required, get_current_user
+from .auth.jwt_utils import token_required, get_current_user
 from .database import db, ScanHistory, BatchProcessingJob
 from .tasks import (
     process_document_async,
@@ -21,7 +21,7 @@ async_bp = Blueprint('async', __name__, url_prefix='/api/async')
 
 
 @async_bp.route('/scan', methods=['POST'])
-@jwt_required
+@token_required
 def async_scan():
     """Submit document for async processing"""
     try:
@@ -67,7 +67,7 @@ def async_scan():
 
 
 @async_bp.route('/batch', methods=['POST'])
-@jwt_required
+@token_required
 def async_batch():
     """Submit batch of documents for async processing"""
     try:
@@ -112,7 +112,7 @@ def async_batch():
 
 
 @async_bp.route('/status/<task_id>', methods=['GET'])
-@jwt_required
+@token_required
 def get_task_status(task_id):
     """Get status of async task"""
     try:
@@ -142,7 +142,7 @@ def get_task_status(task_id):
 
 
 @async_bp.route('/cancel/<task_id>', methods=['POST'])
-@jwt_required
+@token_required
 def cancel_task(task_id):
     """Cancel an async task"""
     try:
@@ -175,7 +175,7 @@ def cancel_task(task_id):
 
 
 @async_bp.route('/analytics/generate', methods=['POST'])
-@jwt_required
+@token_required
 def async_generate_analytics():
     """Generate analytics report asynchronously"""
     try:
@@ -201,7 +201,7 @@ def async_generate_analytics():
 
 
 @async_bp.route('/mcp/think', methods=['POST'])
-@jwt_required
+@token_required
 def async_mcp_thinking():
     """Process document with MCP sequential thinking"""
     try:
@@ -229,7 +229,7 @@ def async_mcp_thinking():
 
 
 @async_bp.route('/queue/stats', methods=['GET'])
-@jwt_required
+@token_required
 def get_queue_stats():
     """Get Celery queue statistics"""
     try:

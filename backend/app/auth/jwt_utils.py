@@ -6,8 +6,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify, current_app
-from ..models.user import User, ApiKey, LoginAttempt
-from ..database import db
+from ..database import db, User, LoginAttempt
 
 class JWTManager:
     """JWT token management"""
@@ -34,7 +33,7 @@ class JWTManager:
             'user_id': str(user.id),
             'username': user.username,
             'email': user.email,
-            'role': user.role.value,
+            'role': user.role,
             'iat': now,
             'exp': now + self.access_token_expires,
             'type': 'access'
@@ -130,29 +129,15 @@ def api_key_required(f):
         if not api_key:
             return jsonify({'error': 'API key is missing'}), 401
         
-        # Find API key in database
-        api_key_obj = None
-        for key in ApiKey.query.filter_by(is_active=True).all():
-            if key.check_key(api_key):
-                api_key_obj = key
-                break
-        
-        if not api_key_obj or not api_key_obj.is_valid():
-            return jsonify({'error': 'Invalid or expired API key'}), 401
-        
-        # Check user is active
-        if not api_key_obj.user.is_active:
-            return jsonify({'error': 'User account is inactive'}), 401
-        
-        # Increment usage
-        api_key_obj.increment_usage()
-        api_key_obj.user.increment_api_calls()
-        
-        # Add current user to request context
-        request.current_user = api_key_obj.user
-        request.current_api_key = api_key_obj
-        
-        return f(*args, **kwargs)
+        # ApiKey functionality disabled temporarily - always return error
+        return jsonify({'error': 'API key authentication temporarily disabled'}), 503
+        # api_key_obj.user.increment_api_calls()
+        # 
+        # # Add current user to request context
+        # request.current_user = api_key_obj.user
+        # request.current_api_key = api_key_obj
+        # 
+        # return f(*args, **kwargs)
     
     return decorated
 
@@ -177,19 +162,9 @@ def token_or_api_key_required(f):
         
         # Try API key
         api_key = request.headers.get('X-API-Key')
+        # API key functionality temporarily disabled
         if api_key:
-            api_key_obj = None
-            for key in ApiKey.query.filter_by(is_active=True).all():
-                if key.check_key(api_key):
-                    api_key_obj = key
-                    break
-            
-            if api_key_obj and api_key_obj.is_valid() and api_key_obj.user.is_active:
-                api_key_obj.increment_usage()
-                api_key_obj.user.increment_api_calls()
-                request.current_user = api_key_obj.user
-                request.current_api_key = api_key_obj
-                return f(*args, **kwargs)
+            return jsonify({'error': 'API key authentication temporarily disabled'}), 503
         
         return jsonify({'error': 'Authentication required'}), 401
     

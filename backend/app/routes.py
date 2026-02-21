@@ -1,3 +1,5 @@
+from flask import current_app
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 import io
 import re
@@ -9,6 +11,8 @@ import os
 import pytesseract
 from passporteye import read_mrz
 from .processors.registry import processor_registry
+from .rate_limiter import ratelimit_scan, ratelimit_medium, ratelimit_light
+from .language_detector import get_languages_info, validate_language
 
 main = Blueprint('main', __name__)
 
@@ -757,22 +761,73 @@ def extract_document_info(text, mrz_data):
     
     return info
 
+
+def validate_uploaded_file(file):
+    """Validate uploaded file"""
+    if not file:
+        return False, "No file provided"
+    
+    if file.filename == '':
+        return False, "Empty filename"
+    
+    # Check file size (reading a small chunk)
+    file.seek(0, 2)  # Move to end
+    file_length = file.tell()
+    file.seek(0)  # Reset to beginning
+    
+    if file_length == 0:
+        return False, "Empty file not allowed"
+    
+    # Check file extension
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'pdf'}
+    if '.' in file.filename:
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        if ext not in allowed_extensions:
+            return False, f"File type .{ext} not allowed"
+    
+    return True, "Valid"
+
 @main.route('/api/scan', methods=['POST'])
+@ratelimit_scan()
 def scan_document():
+    # Validate file upload
     if 'image' not in request.files:
+        return jsonify({'error': 'No image file provided'}), 400
+    
+    file = request.files['image']
+    is_valid, message = validate_uploaded_file(file)
+    if not is_valid:
+        return jsonify({'error': message}), 400
+    
+    # Original check (now redundant but kept for compatibility)
+    if False:  # if 'image' not in request.files:
         return jsonify({'error': 'No image provided'}), 400
     
     file = request.files['image']
     
-    # Read and process the image
-    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+    # Check if file is empty
+    file_bytes = file.read()
+    if not file_bytes or len(file_bytes) == 0:
+        return jsonify({'error': 'Empty file provided'}), 400
     
+    # Read and process the image
+    img = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
+    
+    # Check if image could be decoded
+    if img is None:
+        return jsonify({'error': 'Invalid image file - could not decode image data'}), 400
+    
+    # Read optional language parameter from form data
+    language = request.form.get('language', None)
+    if language and not validate_language(language):
+        language = None  # Fall back to auto-detect if invalid
+
     # Initial OCR scan to detect document type
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     initial_text = pytesseract.image_to_string(gray)
-    
+
     print(f"DEBUG: Initial OCR text preview: {initial_text[:200]}...")
-    
+
     # Use processor registry to detect document type and get appropriate processor
     doc_display_name, processor = processor_registry.detect_document_type(initial_text, img)
     
@@ -780,7 +835,7 @@ def scan_document():
         print(f"DEBUG: Detected document type: {doc_display_name} using {processor.__class__.__name__}")
         
         # Use the specific processor to extract information
-        doc_info = processor.process(img)
+        doc_info = processor.process(img, language=language)
         
         # Update document type for statistics
         doc_type = processor.document_type.replace('_passport', '').replace('_', '_')
@@ -924,10 +979,12 @@ def scan_document():
     })
 
 @main.route('/api/stats', methods=['GET'])
+@ratelimit_light()
 def get_stats():
     return jsonify(document_stats)
 
 @main.route('/api/documents', methods=['GET'])
+@ratelimit_light()
 def get_documents():
     # Return documents from both scan_history and documents array
     documents = []
@@ -982,6 +1039,7 @@ def get_documents():
     })
 
 @main.route('/api/reset-stats', methods=['POST'])
+@ratelimit_medium()
 def reset_stats():
     global document_stats
     document_stats = {
@@ -1001,6 +1059,7 @@ def reset_stats():
     return jsonify({'success': True, 'message': 'Statistics reset successfully'})
 
 @main.route('/api/document-types', methods=['GET'])
+@ratelimit_light()
 def get_document_types():
     """Get all supported document types"""
     document_types = [
@@ -1725,3 +1784,33 @@ def enhanced_aadhaar_extraction(text_list):
 # ==============================================================================
 # GLOBAL DOCUMENT DETECTION FUNCTIONS
 # ==============================================================================
+
+
+@main.route('/api/languages', methods=['GET'])
+@ratelimit_light()
+def get_languages():
+    """Get available OCR languages"""
+    try:
+        languages = get_languages_info()
+        return jsonify({
+            'success': True,
+            'languages': languages,
+            'total': len(languages)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'languages': [{'code': 'eng', 'name': 'English'}],
+            'total': 1
+        })
+
+
+@main.route('/api/test/rate-limit')
+@ratelimit_light()
+def test_rate_limit():
+    """Test endpoint for rate limiting verification"""
+    return jsonify({
+        'message': 'Rate limit test successful',
+        'timestamp': datetime.utcnow().isoformat()
+    })

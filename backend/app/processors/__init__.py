@@ -32,17 +32,17 @@ class DocumentProcessor(ABC):
         """Extract structured information from OCR text"""
         pass
     
-    def process(self, image: np.ndarray, text_results: List[str] = None) -> Dict[str, Any]:
+    def process(self, image: np.ndarray, text_results: List[str] = None, language: str = None) -> Dict[str, Any]:
         """Main processing pipeline"""
         try:
             # Preprocess if needed
             if text_results is None:
                 processed_images = self.preprocess(image)
-                text_results = self._ocr_images(processed_images)
-            
+                text_results = self._ocr_images(processed_images, language=language)
+
             # Extract information
             info = self.extract_info(text_results)
-            
+
             # Add metadata
             info.update({
                 'document_type': self.get_display_name(),
@@ -51,9 +51,9 @@ class DocumentProcessor(ABC):
                 'country_code': self.get_country_code(),
                 'processor': self.__class__.__name__
             })
-            
+
             return info
-            
+
         except Exception as e:
             return {
                 'error': str(e),
@@ -61,14 +61,19 @@ class DocumentProcessor(ABC):
                 'confidence': 'low',
                 'processor': self.__class__.__name__
             }
-    
-    def _ocr_images(self, images: List[np.ndarray]) -> List[str]:
+
+    def _ocr_images(self, images: List[np.ndarray], language: str = None) -> List[str]:
         """Perform OCR on preprocessed images"""
         import pytesseract
-        
+        import re as _re
+
         text_results = []
         configs = self._get_ocr_configs()
-        
+
+        # If an explicit language was requested, override -l in every config
+        if language:
+            configs = [_re.sub(r'-l\s+\S+', f'-l {language}', c) for c in configs]
+
         for image in images:
             for config in configs:
                 try:
@@ -77,15 +82,22 @@ class DocumentProcessor(ABC):
                         text_results.append(text)
                 except Exception:
                     continue
-        
+
         return text_results
-    
+
+    def _get_default_language(self) -> str:
+        """Get the default language for this processor based on supported_languages"""
+        if self.supported_languages:
+            return '+'.join(self.supported_languages)
+        return 'eng'
+
     def _get_ocr_configs(self) -> List[str]:
         """Get OCR configurations for this document type"""
+        lang = self._get_default_language()
         return [
-            '--psm 6 --oem 3',
-            '--psm 4 --oem 3',
-            '--psm 3 --oem 3'
+            f'--psm 6 --oem 3 -l {lang}',
+            f'--psm 4 --oem 3 -l {lang}',
+            f'--psm 3 --oem 3 -l {lang}'
         ]
     
     def _calculate_confidence(self, info: Dict[str, Any]) -> float:

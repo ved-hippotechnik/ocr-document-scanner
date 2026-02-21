@@ -12,13 +12,24 @@ from celery import current_task, group, chain
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import and_
 
-from .celery_app import celery_app
+try:
+    from .celery_app import celery_app
+except ImportError:
+    celery_app = None
+
+# Helper function for conditional task decoration
+def task_decorator(*args, **kwargs):
+    def decorator(func):
+        if celery_app is not None:
+            return celery_app.task(*args, **kwargs)(func)
+        return func
+    return decorator
 from .database import db, ScanHistory, BatchProcessingJob
 from .processors import processor_registry
 from .classification import DocumentClassifier
-from .quality import QualityAnalyzer
-from .validation import EnhancedValidator
-from .cache import get_cache_manager
+from .quality import DocumentQualityAnalyzer as QualityAnalyzer
+from .validation import DocumentValidator as EnhancedValidator
+from .cache import get_cache
 from .mcp.sequential_thinking import SequentialThinkingMCP, ThinkingStage, ThoughtStep
 from .mcp.memory import MemoryMCP
 from .mcp.filesystem import FilesystemMCP
@@ -29,7 +40,6 @@ logger = logging.getLogger(__name__)
 classifier = None
 quality_analyzer = None
 validator = None
-cache_manager = None
 sequential_thinking_mcp = None
 memory_mcp = None
 filesystem_mcp = None
@@ -37,13 +47,13 @@ filesystem_mcp = None
 
 def init_task_services(app):
     """Initialize services for tasks"""
-    global classifier, quality_analyzer, validator, cache_manager
+    global classifier, quality_analyzer, validator
     global sequential_thinking_mcp, memory_mcp, filesystem_mcp
     
     classifier = DocumentClassifier()
     quality_analyzer = QualityAnalyzer()
     validator = EnhancedValidator()
-    cache_manager = get_cache_manager()
+    # cache is available through get_cache()
     
     # Initialize MCP services
     sequential_thinking_mcp = SequentialThinkingMCP()
@@ -56,7 +66,7 @@ def init_task_services(app):
     )
 
 
-@celery_app.task(bind=True, name='app.tasks.process_document_async')
+@task_decorator(bind=True, name='app.tasks.process_document_async')
 def process_document_async(self, scan_id: int, image_data: str, 
                           document_type: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -125,7 +135,7 @@ def process_document_async(self, scan_id: int, image_data: str,
         
         # Cache result
         cache_key = f"ocr_result:{scan_id}"
-        cache_manager.set(cache_key, {
+        get_cache().set(cache_key, {
             'ocr_result': ocr_result,
             'quality': quality_result,
             'validation': validation_result
@@ -181,7 +191,7 @@ def process_document_async(self, scan_id: int, image_data: str,
         raise
 
 
-@celery_app.task(bind=True, name='app.tasks.batch_process_async')
+@task_decorator(bind=True, name='app.tasks.batch_process_async')
 def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[str, Any]:
     """
     Process multiple documents in batch
@@ -261,7 +271,7 @@ def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[s
         raise
 
 
-@celery_app.task(name='app.tasks.generate_analytics_async')
+@task_decorator(name='app.tasks.generate_analytics_async')
 def generate_analytics_async(user_id: Optional[int] = None, 
                            days: int = 30) -> Dict[str, Any]:
     """
@@ -306,7 +316,7 @@ def generate_analytics_async(user_id: Optional[int] = None,
         
         # Cache report
         cache_key = f"analytics_report:{user_id or 'global'}:{days}"
-        cache_manager.set(cache_key, analytics_data, ttl=3600)
+        get_cache().set(cache_key, analytics_data, ttl=3600)
         
         return {
             'success': True,
@@ -319,7 +329,7 @@ def generate_analytics_async(user_id: Optional[int] = None,
         raise
 
 
-@celery_app.task(name='app.tasks.cleanup_old_files_async')
+@task_decorator(name='app.tasks.cleanup_old_files_async')
 def cleanup_old_files_async(days_to_keep: int = 30) -> Dict[str, Any]:
     """
     Clean up old files and database records
@@ -363,7 +373,7 @@ def cleanup_old_files_async(days_to_keep: int = 30) -> Dict[str, Any]:
                     deleted_files += 1
         
         # Clear old cache entries
-        cache_manager.clear_expired()
+        get_cache().clear_expired()
         
         return {
             'success': True,
@@ -378,7 +388,7 @@ def cleanup_old_files_async(days_to_keep: int = 30) -> Dict[str, Any]:
         raise
 
 
-@celery_app.task(bind=True, name='app.tasks.process_with_mcp_thinking')
+@task_decorator(bind=True, name='app.tasks.process_with_mcp_thinking')
 def process_with_mcp_thinking(self, document_id: int, requirements: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process document using MCP Sequential Thinking for complex workflows
@@ -456,20 +466,20 @@ def process_with_mcp_thinking(self, document_id: int, requirements: Dict[str, An
 
 
 # Periodic tasks
-@celery_app.task(name='app.tasks.periodic_cleanup')
+@task_decorator(name='app.tasks.periodic_cleanup')
 def periodic_cleanup():
     """Periodic cleanup task (run daily)"""
     return cleanup_old_files_async.delay(days_to_keep=30)
 
 
-@celery_app.task(name='app.tasks.periodic_analytics')
+@task_decorator(name='app.tasks.periodic_analytics')
 def periodic_analytics():
     """Generate daily analytics reports"""
     return generate_analytics_async.delay(days=1)
 
 
 # Task monitoring
-@celery_app.task(name='app.tasks.monitor_task_health')
+@task_decorator(name='app.tasks.monitor_task_health')
 def monitor_task_health() -> Dict[str, Any]:
     """Monitor health of task queues and workers"""
     from celery import current_app
@@ -485,6 +495,6 @@ def monitor_task_health() -> Dict[str, Any]:
     }
     
     # Store in cache for monitoring
-    cache_manager.set('celery_health', stats, ttl=60)
+    get_cache().set('celery_health', stats, ttl=60)
     
     return stats

@@ -89,7 +89,14 @@ class DocumentClassifier:
             min_samples_split=5
         )
         self.scaler = StandardScaler()
-        logger.info("Initialized default document classifier model")
+        logger.info("Initialized default document classifier model (untrained)")
+
+    @property
+    def is_fitted(self) -> bool:
+        """Check if the model has been trained"""
+        return (self.model is not None and
+                hasattr(self.model, 'classes_') and
+                self.model.classes_ is not None)
     
     def extract_features(self, image_data: bytes) -> np.ndarray:
         """
@@ -279,68 +286,146 @@ class DocumentClassifier:
     
     def classify_document(self, image_data: bytes) -> Dict:
         """
-        Classify document type from image
-        
+        Classify document type from image.
+        Falls back to rule-based classification when ML model is not trained.
+
         Args:
             image_data: Raw image bytes
-            
+
         Returns:
             Dictionary containing classification results
         """
         try:
-            # Extract features
-            features = self.extract_features(image_data)
-            
             if self.model is None:
                 return {
                     'document_type': 'unknown',
                     'confidence': 0.0,
-                    'error': 'Model not loaded'
+                    'error': 'Model not loaded',
+                    'timestamp': datetime.now().isoformat()
                 }
-            
+
+            # If model is not trained, use rule-based fallback
+            if not self.is_fitted:
+                logger.info("ML model not trained, falling back to rule-based classification")
+                return self._classify_rule_based(image_data)
+
+            # Extract features
+            features = self.extract_features(image_data)
+
             # Scale features
-            if self.scaler is not None:
+            if self.scaler is not None and hasattr(self.scaler, 'mean_'):
                 features = self.scaler.transform(features.reshape(1, -1))
             else:
                 features = features.reshape(1, -1)
-            
+
             # Predict
             prediction = self.model.predict(features)[0]
             probabilities = self.model.predict_proba(features)[0]
-            
+
             # Get confidence score
             confidence = np.max(probabilities)
-            
+
             # Map prediction to document type
             document_type = prediction if prediction in self.document_types else 'unknown'
-            
+
             # Generate classification results
             result = {
                 'document_type': document_type,
                 'document_name': self.document_types.get(document_type, 'Unknown Document'),
                 'confidence': float(confidence),
                 'all_probabilities': {
-                    doc_type: float(prob) for doc_type, prob in 
+                    doc_type: float(prob) for doc_type, prob in
                     zip(self.model.classes_, probabilities)
-                } if hasattr(self.model, 'classes_') else {},
+                },
                 'is_confident': confidence >= self.confidence_threshold,
+                'classifier': 'ml',
                 'timestamp': datetime.now().isoformat(),
                 'feature_count': len(features.flatten())
             }
-            
+
             # Update performance metrics
             self.performance_metrics['total_classifications'] += 1
-            
+
             logger.info(f"Document classified as {document_type} with confidence {confidence:.2f}")
-            
+
             return result
-            
+
         except Exception as e:
-            logger.error(f"Document classification failed: {e}")
+            logger.error(f"ML classification failed: {e}, falling back to rule-based")
+            return self._classify_rule_based(image_data)
+
+    def _classify_rule_based(self, image_data: bytes) -> Dict:
+        """Rule-based fallback classification using OCR text and processor detection"""
+        try:
+            import pytesseract
+
+            # Decode image
+            nparr = np.frombuffer(image_data, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            if image is None:
+                return {
+                    'document_type': 'unknown',
+                    'confidence': 0.0,
+                    'error': 'Could not decode image',
+                    'classifier': 'rule_based',
+                    'timestamp': datetime.now().isoformat()
+                }
+
+            # Run OCR
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            text = pytesseract.image_to_string(gray)
+
+            # Try to use the processor registry for detection
+            try:
+                from ..processors import processor_registry
+                display_name, processor = processor_registry.detect_document_type(text, image)
+                if processor:
+                    self.performance_metrics['total_classifications'] += 1
+                    return {
+                        'document_type': processor.document_type,
+                        'document_name': display_name,
+                        'confidence': 0.75,
+                        'is_confident': True,
+                        'classifier': 'rule_based',
+                        'timestamp': datetime.now().isoformat()
+                    }
+            except ImportError:
+                pass
+
+            # Try the rule-based classification module
+            try:
+                from ..classification import document_classifier as rule_classifier
+                results = rule_classifier.classify_document(text, image)
+                if results and len(results) > 0:
+                    best = results[0]
+                    self.performance_metrics['total_classifications'] += 1
+                    return {
+                        'document_type': best.document_type,
+                        'document_name': self.document_types.get(best.document_type, best.document_type),
+                        'confidence': best.confidence,
+                        'is_confident': best.confidence >= self.confidence_threshold,
+                        'classifier': 'rule_based',
+                        'timestamp': datetime.now().isoformat()
+                    }
+            except (ImportError, AttributeError):
+                pass
+
+            return {
+                'document_type': 'unknown',
+                'confidence': 0.0,
+                'classifier': 'rule_based',
+                'model_status': 'not_trained',
+                'timestamp': datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"Rule-based classification also failed: {e}")
             return {
                 'document_type': 'unknown',
                 'confidence': 0.0,
                 'error': str(e),
+                'classifier': 'rule_based',
                 'timestamp': datetime.now().isoformat()
             }
     

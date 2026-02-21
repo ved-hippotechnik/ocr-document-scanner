@@ -12,7 +12,8 @@ from .processor import batch_manager, BatchStatus
 from ..auth.jwt_utils import token_required, get_current_user
 from ..validation import validate_json_input
 from ..database import db
-from ..models.analytics import BatchProcessingJob
+from ..database import BatchProcessingJob
+from ..rate_limiter import ratelimit_batch, ratelimit_light, ratelimit_medium
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ batch_bp = Blueprint('batch', __name__, url_prefix='/api/batch')
 
 @batch_bp.route('/submit', methods=['POST'])
 @token_required
+@ratelimit_batch()
 def submit_batch():
     """
     Submit a batch processing job
@@ -357,7 +359,7 @@ def cleanup_jobs():
             return jsonify({'error': 'User not found'}), 401
         
         # Check if user is admin
-        if not current_user.is_admin:
+        if not current_user.is_admin():
             return jsonify({'error': 'Admin access required'}), 403
         
         # Get parameters

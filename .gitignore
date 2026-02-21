@@ -56,10 +56,10 @@ frontend/node_modules/.cache/
 
 # Environment Variables
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+!.env.template
+!.env.production.template
 
 # Logs
 logs/
@@ -76,9 +76,10 @@ backend/ocr_scanner.db
 uploads/
 backend/uploads/
 
-# Models
-models/
-backend/models/
+# ML model files
+*.pkl
+models/*.pkl
+backend/models/*.pkl
 
 # Analytics
 analytics_charts/
@@ -118,10 +119,14 @@ mcp_storage/
 enhanced_*.png
 preprocessing_*.png
 
-# Temporary test files
-test_*.py
-*_test.py
-*_demo.py
+# Temporary test/demo scripts (root only, not backend/tests/)
+/test_*.py
+/*_test.py
+/*_demo.py
 simple_*.json
 final_*.json
 enhanced_*.json
+*_report_*.json
+stress_test_*.json
+*_test_report*.json
+test_results/

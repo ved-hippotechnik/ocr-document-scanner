@@ -10,7 +10,7 @@ from datetime import datetime
 
 from .document_classifier import DocumentClassifier
 from ..auth.jwt_utils import token_required
-from ..cache import cache_manager
+from ..cache import get_cache
 from ..validation import validate_file_upload, validate_json_input
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def classify_document():
         
         # Check cache first
         cache_key = f"classification:{hash(image_data)}"
-        cached_result = cache_manager.get(cache_key)
+        cached_result = get_cache().get(cache_key) if get_cache() else None
         
         if cached_result:
             logger.info("Returning cached classification result")
@@ -89,7 +89,8 @@ def classify_document():
         classification_result = document_classifier.classify_document(image_data)
         
         # Cache result for 1 hour
-        cache_manager.set(cache_key, classification_result, ttl=3600)
+        if get_cache():
+            get_cache().set(cache_key, classification_result, ttl=3600)
         
         return jsonify({
             'success': True,
@@ -363,12 +364,97 @@ def set_confidence_threshold():
             'error': str(e)
         }), 500
 
+@ai_bp.route('/train/auto', methods=['POST'])
+@token_required
+def auto_train_classifier():
+    """
+    Automatically train the classifier from accumulated scan history data.
+    """
+    try:
+        from .training_pipeline import TrainingDataGenerator
+
+        generator = TrainingDataGenerator()
+        stats = generator.get_training_stats()
+
+        if stats['total_samples'] < 10:
+            return jsonify({
+                'success': False,
+                'error': f"Not enough training data ({stats['total_samples']} samples). Need at least 10.",
+                'training_stats': stats
+            }), 400
+
+        # Build training set with augmentation
+        training_data = generator.build_training_set(augment=True)
+
+        # Train the model
+        result = document_classifier.train_model(training_data)
+
+        return jsonify({
+            'success': result.get('success', False),
+            'training_stats': stats,
+            **result
+        })
+
+    except Exception as e:
+        logger.error(f"Auto-training failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ai_bp.route('/model/status', methods=['GET'])
+def get_model_status():
+    """Get current model status including training state and accuracy."""
+    try:
+        metrics = document_classifier.get_performance_metrics()
+
+        return jsonify({
+            'success': True,
+            'is_fitted': document_classifier.is_fitted,
+            'model_path': document_classifier.model_path,
+            'confidence_threshold': document_classifier.confidence_threshold,
+            'supported_types': len(document_classifier.document_types) - 1,
+            'performance_metrics': metrics
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get model status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ai_bp.route('/training-data/stats', methods=['GET'])
+@token_required
+def get_training_data_stats():
+    """Get statistics about available training data."""
+    try:
+        from .training_pipeline import TrainingDataGenerator
+
+        generator = TrainingDataGenerator()
+        stats = generator.get_training_stats()
+
+        return jsonify({
+            'success': True,
+            **stats
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get training data stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @ai_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check for AI classification service"""
     try:
-        # Check if classifier is loaded
-        classifier_ready = document_classifier.model is not None
+        # Check if classifier is loaded and trained
+        classifier_ready = document_classifier.is_fitted
         
         metrics = document_classifier.get_performance_metrics()
         

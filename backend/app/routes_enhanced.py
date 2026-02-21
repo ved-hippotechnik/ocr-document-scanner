@@ -54,23 +54,14 @@ from .validation import (
     add_security_headers
 )
 from .database import log_scan_result, get_analytics_data, ScanHistory, DocumentTypeStats, db
-from .tasks import process_document_async, process_batch_documents
-from .cache import cache, cached_result
+from .tasks import process_document_async
+# from .tasks import process_batch_documents  # Not implemented yet
+from .cache import cache
 from .auth import token_or_api_key_required
-# from .websocket import notify_processing_start, notify_processing_progress, notify_processing_complete, notify_processing_error
-
-# Temporary stub functions for websocket notifications
-def notify_processing_start(*args, **kwargs):
-    pass
-
-def notify_processing_progress(*args, **kwargs):
-    pass
-
-def notify_processing_complete(*args, **kwargs):
-    pass
-
-def notify_processing_error(*args, **kwargs):
-    pass
+from .websocket import (
+    notify_processing_start, notify_processing_progress,
+    notify_processing_complete, notify_processing_error
+)
 
 # Initialize enhanced processors if available
 enhanced_image_processor = None
@@ -184,8 +175,24 @@ def enhanced_scan(validated_data):
         
         # Document classification and processing
         notify_processing_progress(session_id, 40, "Classifying document type")
-        classification_result = document_classifier.classify_document(image_array)
-        
+
+        # Run OCR to get text for rule-based classification
+        import pytesseract
+        gray_for_classify = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+        ocr_text = pytesseract.image_to_string(gray_for_classify)
+
+        classification_results = document_classifier.classify_document(ocr_text, image_array)
+        # Convert list of ClassificationResult to dict format
+        if classification_results and len(classification_results) > 0:
+            best = classification_results[0]
+            classification_result = {
+                'document_type': best.document_type,
+                'confidence': best.confidence,
+                'country': best.country,
+            }
+        else:
+            classification_result = {'document_type': 'unknown', 'confidence': 0.0}
+
         if classification_result['document_type'] == 'unknown':
             # Try with provided document type if available
             if document_type:
@@ -336,8 +343,19 @@ def classify_document_endpoint(validated_data):
         image_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         
         # Classify document
-        classification_result = document_classifier.classify_document(image_array)
-        
+        import pytesseract as _pytesseract
+        _gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+        _ocr_text = _pytesseract.image_to_string(_gray)
+        _cls_results = document_classifier.classify_document(_ocr_text, image_array)
+        if _cls_results and len(_cls_results) > 0:
+            _best = _cls_results[0]
+            classification_result = {
+                'document_type': _best.document_type,
+                'confidence': _best.confidence,
+            }
+        else:
+            classification_result = {'document_type': 'unknown', 'confidence': 0.0}
+
         if classification_result['document_type'] == 'unknown':
             raise ProcessingError(
                 "Could not identify document type. Please check image quality and try again.",

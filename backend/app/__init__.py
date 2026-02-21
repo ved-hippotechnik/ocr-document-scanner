@@ -37,26 +37,41 @@ def create_app():
     app.config['MCP_MAX_MEMORY_SIZE'] = int(os.environ.get('MCP_MAX_MEMORY_SIZE', 10000))
     app.config['MCP_MEMORY_PERSISTENCE_PATH'] = os.environ.get('MCP_MEMORY_PERSISTENCE_PATH', 'mcp_storage/memory.pkl')
     
-    # Database configuration
+    # Rate Limiting Configuration
+    app.config['RATE_LIMIT_ENABLED'] = os.environ.get('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+    app.config['RATE_LIMIT_STORAGE_URL'] = os.environ.get('RATE_LIMIT_STORAGE_URL', 'memory://')
+    app.config['RATE_LIMIT_REQUESTS'] = int(os.environ.get('RATE_LIMIT_REQUESTS', 100))
+    app.config['RATE_LIMIT_WINDOW'] = int(os.environ.get('RATE_LIMIT_WINDOW', 60))
+    
+    # Database configuration with connection pooling
     database_url = os.environ.get('DATABASE_URL')
     if database_url:
         # Handle DATABASE_URL from various cloud providers
         if database_url.startswith('postgres://'):
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        
+        # Connection pooling configuration
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_size': int(os.environ.get('DATABASE_POOL_SIZE', 20)),
+            'pool_timeout': int(os.environ.get('DATABASE_POOL_TIMEOUT', 30)),
+            'pool_recycle': int(os.environ.get('DATABASE_POOL_RECYCLE', 3600)),
+            'max_overflow': int(os.environ.get('DATABASE_MAX_OVERFLOW', 40)),
+            'pool_pre_ping': True,  # Verify connections before using
+            'echo_pool': flask_env == 'development',  # Log pool checkouts in dev
+        }
     else:
         # Fallback to SQLite for development
         app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
             'SQLALCHEMY_DATABASE_URI', 
             'sqlite:///ocr_scanner.db'
         )
-    
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_timeout': 20,
-        'pool_recycle': -1,
-        'pool_pre_ping': True
-    }
+        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_timeout': 20,
+            'pool_recycle': -1,
+            'pool_pre_ping': True
+        }
     
     # OCR Configuration
     app.config['OCR_TIMEOUT'] = int(os.environ.get('OCR_TIMEOUT', 60))
@@ -80,10 +95,33 @@ def create_app():
     from .auth import jwt_manager
     jwt_manager.init_app(app)
     
-    # Initialize WebSocket (temporarily disabled for basic setup)
-    # from .websocket import init_websocket
-    # socketio = init_websocket(app)
-    socketio = None
+    # Initialize Rate Limiter
+    from .rate_limiter import init_rate_limiter
+    limiter = init_rate_limiter(app)
+    app.limiter = limiter  # Make limiter accessible to blueprints
+    app.logger.info("✅ Rate limiter initialized")
+    
+    # Initialize Security Middleware
+    from .security.middleware import setup_security_middleware
+    setup_security_middleware(app)
+    app.logger.info("✅ Security middleware initialized")
+    
+    # Initialize Celery for async tasks
+    celery = make_celery(app)
+    app.celery = celery
+    app.logger.info("✅ Celery initialized for async processing")
+    
+    # Initialize WebSocket
+    if os.environ.get('ENABLE_WEBSOCKET', 'true').lower() == 'true':
+        try:
+            from .websocket import init_websocket
+            socketio = init_websocket(app)
+            app.logger.info("✅ WebSocket initialized")
+        except Exception as e:
+            app.logger.warning(f"WebSocket initialization failed: {e}")
+            socketio = None
+    else:
+        socketio = None
     
     # Initialize Enhanced OCR System
     app.logger.info("Initializing Enhanced OCR System...")
@@ -131,35 +169,6 @@ def create_app():
         app.logger.error(f"❌ Failed to initialize Performance Optimizer: {e}")
         app.performance_optimizer = None
     
-    # Initialize MCP Servers
-    try:
-        from .mcp.routes import init_mcp_servers, mcp_bp
-        init_mcp_servers(app)
-        app.logger.info("✅ MCP Servers initialized")
-    except Exception as e:
-        app.logger.error(f"❌ Failed to initialize MCP Servers: {e}")
-    
-    # Initialize Celery
-    celery = make_celery(app)
-    app.celery = celery
-    
-    # Store celery instance globally
-    from . import celery_app as celery_module
-    celery_module.celery_app = celery
-    
-    # Initialize task services
-    from .tasks import init_task_services
-    init_task_services(app)
-    app.logger.info("✅ Celery and async tasks initialized")
-    
-    # Initialize API documentation
-    try:
-        from .api_docs import init_api_docs
-        init_api_docs(app)
-        app.logger.info("✅ API documentation initialized")
-    except Exception as e:
-        app.logger.error(f"❌ Failed to initialize API documentation: {e}")
-    
     # Logging Configuration
     if not app.debug and not app.testing:
         log_level = getattr(logging, os.environ.get('LOG_LEVEL', 'INFO').upper())
@@ -177,43 +186,53 @@ def create_app():
         app.logger.setLevel(log_level)
         app.logger.info('OCR Document Scanner startup')
     
-    # Initialize monitoring (temporarily disabled for basic setup)
-    # from . import monitoring
-    # monitoring.setup_metrics(app)
+    # Initialize monitoring
+    try:
+        from .monitoring import setup_metrics
+        setup_metrics(app)
+        app.logger.info("✅ Monitoring metrics initialized")
+    except Exception as e:
+        app.logger.warning(f"Monitoring setup failed (non-critical): {e}")
     
     # Initialize document processors
     from .processors import registry  # This will initialize all processors
     
+    # Initialize cache
+    from .cache import init_cache
+    cache = init_cache(app)
+    app.cache = cache
+    app.logger.info("✅ Cache system initialized")
+    
     # Register blueprints
     from .routes import main as main_blueprint
     from .routes_enhanced import enhanced as enhanced_blueprint
-    from .routes_enhanced_v2 import enhanced_v2 as enhanced_v2_blueprint
-    # from .routes_ai_enhanced import ai_enhanced_bp
     from .auth import auth_bp
     from .analytics import analytics_bp
     from .ai import ai_bp
     from .batch import batch_bp
-    from .routes_async import async_bp
+    
+    # Register improved routes with better error handling
+    try:
+        from .routes_improved import improved
+        app.register_blueprint(improved)
+        app.logger.info("✅ Improved routes v3 registered")
+    except ImportError as e:
+        app.logger.warning(f"Could not import improved routes: {e}")
+    
+    # Register async routes for long-running operations
+    try:
+        from .routes_async import async_bp
+        app.register_blueprint(async_bp)
+        app.logger.info("✅ Async routes registered")
+    except ImportError as e:
+        app.logger.warning(f"Could not import async routes: {e}")
     
     app.register_blueprint(main_blueprint)
     app.register_blueprint(enhanced_blueprint)
-    app.register_blueprint(enhanced_v2_blueprint)
-    # app.register_blueprint(ai_enhanced_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(batch_bp)
-    app.register_blueprint(async_bp)
-    
-    # Register MCP blueprint if initialized
-    try:
-        from .mcp.routes import mcp_bp
-        app.register_blueprint(mcp_bp)
-    except Exception as e:
-        app.logger.warning(f"MCP blueprint not registered: {e}")
-    
-    # Register documented API routes (already includes all endpoints with documentation)
-    # The api_docs module handles all the routing with Swagger UI
     
     # Root endpoint - API Documentation
     @app.route('/')
@@ -242,7 +261,6 @@ def create_app():
                 <p><strong>Status:</strong> <span class="status">✅ OPERATIONAL</span></p>
                 <p><strong>Version:</strong> 2.0.0</p>
                 <p><strong>Base URL:</strong> <code>http://localhost:5002</code></p>
-                <p><strong>📚 Interactive API Documentation:</strong> <a href="/api/v2/docs" target="_blank">/api/v2/docs</a></p>
                 
                 <h2>📋 Available Document Types</h2>
                 <div class="feature">🇦🇪 Emirates ID Card (UAE)</div>
