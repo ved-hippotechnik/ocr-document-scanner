@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import Scanner from './pages/Scanner';
@@ -14,8 +15,17 @@ import UpdatePrompt from './components/UpdatePrompt';
 import { registerServiceWorker, requestNotificationPermission } from './utils/pwaUtils';
 import './App.css';
 
-// Apple-inspired theme
+// Apple-inspired theme with responsive breakpoints
 const theme = createTheme({
+  breakpoints: {
+    values: {
+      xs: 0,
+      sm: 600,
+      md: 900,
+      lg: 1200,
+      xl: 1536,
+    },
+  },
   palette: {
     primary: {
       main: '#007AFF', // Apple blue
@@ -47,7 +57,7 @@ const theme = createTheme({
     },
     text: {
       primary: '#000000',
-      secondary: '#8E8E93', // Apple secondary text
+      secondary: '#6C6C70', // Apple secondary text (WCAG AA compliant)
     },
     divider: 'rgba(0, 0, 0, 0.12)',
   },
@@ -163,9 +173,9 @@ function App() {
     // Initialize PWA features
     const initializePWA = async () => {
       try {
-        // Register service worker
+        // Enable service worker for PWA functionality
         await registerServiceWorker();
-        console.log('PWA initialized successfully');
+        console.log('PWA service worker enabled');
         
         // Request notification permission after a delay
         setTimeout(async () => {
@@ -183,28 +193,54 @@ function App() {
   }, []);
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Router>
-        <div className="App">
-          <Navbar />
-          <div className="content">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/scanner" element={<Scanner />} />
-              <Route path="/ai-scanner" element={<AIScanner />} />
-              <Route path="/batch-processor" element={<BatchProcessor />} />
-              <Route path="/ai-dashboard" element={<AIDashboard />} />
-            </Routes>
+    <ErrorBoundary fallbackMessage="The Document Scanner application encountered an error">
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Router>
+          <div className="App">
+            <ErrorBoundary fallbackMessage="Navigation system encountered an error">
+              <Navbar />
+            </ErrorBoundary>
+            <div className="content">
+              <Routes>
+                <Route path="/" element={
+                  <ErrorBoundary fallbackMessage="Dashboard failed to load">
+                    <Dashboard />
+                  </ErrorBoundary>
+                } />
+                <Route path="/scanner" element={
+                  <ErrorBoundary fallbackMessage="Scanner failed to load">
+                    <Scanner />
+                  </ErrorBoundary>
+                } />
+                <Route path="/ai-scanner" element={
+                  <ErrorBoundary fallbackMessage="AI Scanner failed to load">
+                    <AIScanner />
+                  </ErrorBoundary>
+                } />
+                <Route path="/batch-processor" element={
+                  <ErrorBoundary fallbackMessage="Batch Processor failed to load">
+                    <BatchProcessor />
+                  </ErrorBoundary>
+                } />
+                <Route path="/ai-dashboard" element={
+                  <ErrorBoundary fallbackMessage="AI Dashboard failed to load">
+                    <AIDashboard />
+                  </ErrorBoundary>
+                } />
+              </Routes>
+            </div>
+            
+            {/* PWA Components with Error Boundaries */}
+            <ErrorBoundary fallbackMessage="PWA features encountered an error">
+              <PWAInstallPrompt />
+              <OfflineStatus />
+              <UpdatePrompt />
+            </ErrorBoundary>
           </div>
-          
-          {/* PWA Components */}
-          <PWAInstallPrompt />
-          <OfflineStatus />
-          <UpdatePrompt />
-        </div>
-      </Router>
-    </ThemeProvider>
+        </Router>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -8,9 +8,23 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import DocumentScannerIcon from '@mui/icons-material/DocumentScanner';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import SmartToy from '@mui/icons-material/SmartToy';
+import BatchPrediction from '@mui/icons-material/BatchPrediction';
+import Analytics from '@mui/icons-material/Analytics';
+import MenuIcon from '@mui/icons-material/Menu';
+import CloseIcon from '@mui/icons-material/Close';
 import useScrollTrigger from '@mui/material/useScrollTrigger';
 import Slide from '@mui/material/Slide';
-import { styled } from '@mui/material/styles';
+import Drawer from '@mui/material/Drawer';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Divider from '@mui/material/Divider';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { styled, useTheme } from '@mui/material/styles';
+import { useScreenSize } from '../utils/responsive';
 
 // Apple-style navigation button
 const AppleNavButton = styled(Button)(({ theme, active }) => ({
@@ -42,6 +56,10 @@ function HideOnScroll(props) {
 const Navbar = () => {
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const theme = useTheme();
+  const screenSize = useScreenSize();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   // Add scroll listener to apply blur effect
   useEffect(() => {
@@ -103,7 +121,8 @@ const Navbar = () => {
             </Typography>
           </Box>
           
-          <Box sx={{ display: 'flex' }}>
+          {/* Desktop Navigation */}
+          <Box sx={{ display: { xs: 'none', md: 'flex' } }}>
             <AppleNavButton
               component={RouterLink}
               to="/"
@@ -122,9 +141,139 @@ const Navbar = () => {
             >
               Scanner
             </AppleNavButton>
+            <AppleNavButton
+              component={RouterLink}
+              to="/ai-scanner"
+              active={location.pathname === '/ai-scanner' ? 1 : 0}
+              startIcon={<SmartToy sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
+            >
+              AI Scanner
+            </AppleNavButton>
+            <AppleNavButton
+              component={RouterLink}
+              to="/batch-processor"
+              active={location.pathname === '/batch-processor' ? 1 : 0}
+              startIcon={<BatchPrediction sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
+            >
+              Batch
+            </AppleNavButton>
+            <AppleNavButton
+              component={RouterLink}
+              to="/ai-dashboard"
+              active={location.pathname === '/ai-dashboard' ? 1 : 0}
+              startIcon={<Analytics sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
+            >
+              AI Analytics
+            </AppleNavButton>
           </Box>
+          
+          {/* Mobile Menu Button */}
+          <IconButton
+            sx={{ display: { xs: 'block', md: 'none' } }}
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            color="inherit"
+            aria-label="Open navigation menu"
+          >
+            {mobileMenuOpen ? <CloseIcon /> : <MenuIcon />}
+          </IconButton>
         </Toolbar>
       </AppBar>
+      
+      {/* Mobile Drawer */}
+      <Drawer
+        anchor="right"
+        open={mobileMenuOpen && isMobile}
+        onClose={() => setMobileMenuOpen(false)}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: { xs: '85%', sm: 320 },
+            maxWidth: 320,
+            backgroundColor: 'background.paper',
+          },
+        }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="h6" fontWeight={600}>
+              Navigation
+            </Typography>
+            <IconButton onClick={() => setMobileMenuOpen(false)} aria-label="Close navigation menu">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Divider />
+          <List>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
+                to="/"
+                selected={location.pathname === '/'}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <DashboardIcon color={location.pathname === '/' ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="Dashboard" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
+                to="/scanner"
+                selected={location.pathname === '/scanner'}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <DocumentScannerIcon color={location.pathname === '/scanner' ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="Scanner" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
+                to="/ai-scanner"
+                selected={location.pathname === '/ai-scanner'}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <SmartToy color={location.pathname === '/ai-scanner' ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="AI Scanner" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
+                to="/batch-processor"
+                selected={location.pathname === '/batch-processor'}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <BatchPrediction color={location.pathname === '/batch-processor' ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="Batch Processor" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
+                to="/ai-dashboard"
+                selected={location.pathname === '/ai-dashboard'}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <Analytics color={location.pathname === '/ai-dashboard' ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="AI Analytics" />
+              </ListItemButton>
+            </ListItem>
+          </List>
+        </Box>
+      </Drawer>
     </HideOnScroll>
   );
 };

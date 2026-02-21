@@ -1,0 +1,81 @@
+# Prometheus Configuration for OCR Document Scanner
+# ================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'ocr-scanner-prod'
+    environment: 'production'
+
+# Rule files
+rule_files:
+  - "alerts.yml"
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # OCR Scanner Application
+  - job_name: 'ocr-scanner'
+    static_configs:
+      - targets: ['localhost:5001']
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # Redis Monitoring
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['localhost:6379']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # PostgreSQL Monitoring (with postgres_exporter)
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['localhost:9187']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # Node Exporter (System metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # Grafana (for monitoring the monitoring)
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['localhost:3000']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Flask Application Custom Metrics
+  - job_name: 'ocr-scanner-custom'
+    static_configs:
+      - targets: ['localhost:5001']
+    scrape_interval: 5s
+    metrics_path: /api/metrics/prometheus
+    scrape_timeout: 5s
+
+# Remote write configuration (optional - for long-term storage)
+# remote_write:
+#   - url: "http://localhost:8086/api/v1/prom/write?db=prometheus"
+#     queue_config:
+#       max_samples_per_send: 10000
+#       max_shards: 200
+#       capacity: 20000

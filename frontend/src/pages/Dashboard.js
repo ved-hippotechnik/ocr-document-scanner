@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../config';
 import { 
   Box, 
   Button, 
@@ -32,8 +33,14 @@ import {
   Tabs,
   Snackbar,
   Menu,
-  MenuItem
+  MenuItem,
+  useTheme,
+  useMediaQuery,
+  Stack,
+  Card,
+  CardContent
 } from '@mui/material';
+import { useScreenSize, getResponsiveTableConfig, getResponsiveSpacing } from '../utils/responsive';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -91,11 +98,19 @@ const Dashboard = () => {
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const menuOpen = Boolean(menuAnchorEl);
+  
+  // Responsive design hooks
+  const theme = useTheme();
+  const screenSize = useScreenSize();
+  const tableConfig = getResponsiveTableConfig(screenSize);
+  const spacing = getResponsiveSpacing(screenSize);
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
 
   const fetchDocuments = async () => {
     setDocumentsLoading(true);
     try {
-      const response = await axios.get('http://localhost:5003/api/v2/documents');
+      const response = await axios.get(`${API_URL}/api/v2/documents`);
       // Ensure we're setting the documents array from the response
       setDocuments(response.data.documents || []);
       setError(null);
@@ -109,7 +124,7 @@ const Dashboard = () => {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5003/api/v2/stats');
+      const response = await axios.get(`${API_URL}/api/stats`);
       setStats(response.data);
       setError(null);
     } catch (err) {
@@ -122,7 +137,7 @@ const Dashboard = () => {
   const resetStats = async () => {
     setLoading(true);
     try {
-      await axios.post('http://localhost:5003/api/v2/reset-stats');
+      await axios.post(`${API_URL}/api/v2/reset-stats`);
       fetchStats();
     } catch (err) {
       setError('Error resetting statistics: ' + err.message);

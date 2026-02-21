@@ -15,6 +15,8 @@ import {
   DialogActions,
   Divider,
   Grid,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   CameraAlt as CameraIcon,
@@ -24,6 +26,9 @@ import {
   PhotoCamera as CameraAltIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import { API_URL } from '../config';
+import { validateFile, showValidationError, clearValidationError } from '../utils/validation';
+import { useScreenSize, getResponsiveSpacing, getResponsiveDimensions, getResponsiveIconSize, getResponsiveButtonSize } from '../utils/responsive';
 
 const Scanner = () => {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -37,6 +42,14 @@ const Scanner = () => {
   const [stream, setStream] = useState(null);
   const videoRef = useRef(null);
   const fileInputRef = useRef(null);
+  
+  // Responsive design hooks
+  const theme = useTheme();
+  const screenSize = useScreenSize();
+  const spacing = getResponsiveSpacing(screenSize);
+  const uploadZoneDimensions = getResponsiveDimensions('uploadZone', screenSize);
+  const iconSize = getResponsiveIconSize('large', screenSize);
+  const buttonSize = getResponsiveButtonSize(screenSize);
 
   // Handle video stream when dialog opens/closes
   useEffect(() => {
@@ -54,31 +67,20 @@ const Scanner = () => {
     };
   }, [stream]);
 
-  const validateFile = (file) => {
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    
-    if (!allowedTypes.includes(file.type)) {
-      return 'Please select a valid image file (JPEG, PNG, GIF, or WebP).';
-    }
-    
-    if (file.size > maxSize) {
-      return 'File size must be less than 10MB.';
-    }
-    
-    return null;
-  };
+  // Validation now handled by unified validation utility
 
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-      const validationError = validateFile(file);
-      if (validationError) {
-        setError(validationError);
-        setSnackbarMessage(validationError);
-        setSnackbarOpen(true);
+      const validation = validateFile(file);
+      if (!validation.isValid) {
+        showValidationError(validation.error, setError, (msg) => {
+          setSnackbarMessage(msg);
+          setSnackbarOpen(true);
+        });
         return;
       }
+      clearValidationError(setError);
       
       setSelectedFile(file);
       const reader = new FileReader();
@@ -105,13 +107,15 @@ const Scanner = () => {
 
     const file = event.dataTransfer.files[0];
     if (file) {
-      const validationError = validateFile(file);
-      if (validationError) {
-        setError(validationError);
-        setSnackbarMessage(validationError);
-        setSnackbarOpen(true);
+      const validation = validateFile(file);
+      if (!validation.isValid) {
+        showValidationError(validation.error, setError, (msg) => {
+          setSnackbarMessage(msg);
+          setSnackbarOpen(true);
+        });
         return;
       }
+      clearValidationError(setError);
       
       setSelectedFile(file);
       const reader = new FileReader();
@@ -249,19 +253,19 @@ const Scanner = () => {
     formData.append('image', selectedFile);
 
     try {
-      const response = await axios.post('http://localhost:5003/api/v2/upload', formData, {
+      const response = await axios.post(`${API_URL}/api/v3/scan`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
         timeout: 30000 // 30 second timeout
       });
 
-      if (response.data && response.data.document_type) {
+      if (response.data && (response.data.success || response.data.document_type)) {
         setScanResult(response.data);
         setSnackbarMessage('Document scanned successfully!');
         setSnackbarOpen(true);
       } else {
-        throw new Error('Invalid response from server');
+        throw new Error(response.data?.error || 'Invalid response from server');
       }
     } catch (err) {
       console.error('Scan error:', err);
@@ -379,9 +383,15 @@ const Scanner = () => {
                   }}>
                     Drag and drop your document here
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" paragraph sx={{
-                    fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' }
-                  }}>
+                  <Typography 
+                    variant="body2" 
+                    color="text.secondary" 
+                    paragraph 
+                    sx={{
+                      fontSize: { xs: '0.8rem', sm: '0.875rem', md: '1rem' }
+                    }}
+                    id="file-upload-help"
+                  >
                     or use one of the options below
                   </Typography>
                   <Box sx={{ mt: 2, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
@@ -401,6 +411,8 @@ const Scanner = () => {
                         accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                         onChange={handleFileSelect}
                         ref={fileInputRef}
+                        aria-label="Select image file for document scanning"
+                        aria-describedby="file-upload-help"
                       />
                     </Button>
                     <Button
@@ -411,6 +423,7 @@ const Scanner = () => {
                         minWidth: { xs: '100%', sm: 'auto' },
                         fontSize: { xs: '0.875rem', sm: '0.9rem', md: '1rem' }
                       }}
+                      aria-label="Open camera to take a photo of your document"
                     >
                       Use Camera
                     </Button>

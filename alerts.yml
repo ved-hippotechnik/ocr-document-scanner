@@ -1,0 +1,176 @@
+# Prometheus Alert Rules for OCR Document Scanner
+# ==============================================
+
+groups:
+  - name: ocr_scanner_alerts
+    rules:
+      # Application Health Alerts
+      - alert: OCRScannerDown
+        expr: up{job="ocr-scanner"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OCR Scanner application is down"
+          description: "OCR Scanner application has been down for more than 1 minute"
+
+      - alert: HighResponseTime
+        expr: flask_request_duration_seconds{quantile="0.95"} > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }} seconds"
+
+      # Error Rate Alerts
+      - alert: HighErrorRate
+        expr: rate(flask_request_exceptions_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors/second over the last 5 minutes"
+
+      - alert: CriticalErrorRate
+        expr: rate(flask_request_exceptions_total[5m]) > 0.5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value }} errors/second over the last 5 minutes"
+
+      # Database Alerts
+      - alert: DatabaseConnectionFailures
+        expr: increase(database_connection_failures_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failures"
+          description: "{{ $value }} database connection failures in the last 5 minutes"
+
+      - alert: PostgreSQLDown
+        expr: up{job="postgresql"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database has been down for more than 1 minute"
+
+      # Redis Alerts
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis server has been down for more than 1 minute"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+      # System Resource Alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% on instance {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value | humanizePercentage }} on instance {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is {{ $value | humanizePercentage }} full on instance {{ $labels.instance }}"
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical disk space"
+          description: "Disk space is {{ $value | humanizePercentage }} full on instance {{ $labels.instance }}"
+
+      # OCR Processing Alerts
+      - alert: OCRProcessingFailures
+        expr: increase(ocr_processing_failures_total[10m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High OCR processing failures"
+          description: "{{ $value }} OCR processing failures in the last 10 minutes"
+
+      - alert: OCRQueueBacklog
+        expr: ocr_queue_size > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OCR processing queue backlog"
+          description: "OCR queue has {{ $value }} items waiting for processing"
+
+      - alert: LongProcessingTime
+        expr: ocr_processing_duration_seconds{quantile="0.95"} > 30
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Long OCR processing time"
+          description: "95th percentile OCR processing time is {{ $value }} seconds"
+
+  - name: security_alerts
+    rules:
+      # Security-related alerts
+      - alert: RateLimitExceeded
+        expr: increase(rate_limit_exceeded_total[5m]) > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limit frequently exceeded"
+          description: "Rate limit exceeded {{ $value }} times in the last 5 minutes"
+
+      - alert: UnauthorizedRequests
+        expr: increase(flask_request_exceptions_total{type="401"}[5m]) > 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of unauthorized requests"
+          description: "{{ $value }} unauthorized requests in the last 5 minutes"
+
+      - alert: SecurityValidationFailures
+        expr: increase(security_validation_failures_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Security validation failures detected"
+          description: "{{ $value }} security validation failures in the last 5 minutes"

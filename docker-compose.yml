@@ -79,21 +79,18 @@ services:
   # Celery Worker for Background Tasks
   celery-worker:
     build: .
-    command: celery -A celery_worker.celery worker -Q ocr_processing,default --loglevel=info --concurrency=4
+    command: celery -A backend.app.tasks worker --loglevel=info --concurrency=2
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ocr_scanner}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-in-production}
       - UPLOAD_FOLDER=/app/uploads
-      - MCP_STORAGE_PATH=/app/mcp_storage
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
-      - ./mcp_storage:/app/mcp_storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,49 +101,20 @@ services:
     deploy:
       replicas: 2
     restart: unless-stopped
-  
-  # Celery Batch Worker
-  celery-batch-worker:
-    build: .
-    command: celery -A celery_worker.celery worker -Q batch_processing,analytics --loglevel=info --concurrency=2
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ocr_scanner}
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-in-production}
-      - UPLOAD_FOLDER=/app/uploads
-      - MCP_STORAGE_PATH=/app/mcp_storage
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    volumes:
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
-      - ./mcp_storage:/app/mcp_storage
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - ocr-network
-    restart: unless-stopped
 
   # Celery Beat for Scheduled Tasks
   celery-beat:
     build: .
-    command: celery -A celery_beat.celery beat --loglevel=info
+    command: celery -A backend.app.tasks beat --loglevel=info --schedule=/app/celerybeat-schedule
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ocr_scanner}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-in-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - celery_data:/app
-      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,7 +127,7 @@ services:
   # Flower for Celery Monitoring
   flower:
     build: .
-    command: celery -A celery_worker.celery flower --port=5555
+    command: celery -A backend.app.tasks flower --port=5555
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

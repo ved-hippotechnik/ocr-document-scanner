@@ -1,4 +1,6 @@
 import React, { useState, useCallback } from 'react';
+import { API_URL } from '../config';
+import { validateFiles, formatFileSize as formatFileSizeUtil, showValidationError, clearValidationError } from '../utils/validation';
 import {
   Box,
   Button,
@@ -55,7 +57,18 @@ const BatchProcessor = () => {
   const [expandedRows, setExpandedRows] = useState({});
 
   const onDrop = useCallback((acceptedFiles) => {
-    const newFiles = acceptedFiles.map(file => ({
+    const validation = validateFiles(acceptedFiles, 50);
+    
+    if (!validation.isValid) {
+      toast.error(validation.error);
+      return;
+    }
+    
+    if (validation.validFiles.length < acceptedFiles.length) {
+      toast.warning(validation.error); // Shows which files were skipped
+    }
+    
+    const newFiles = validation.validFiles.map(file => ({
       id: `${Date.now()}-${Math.random()}`,
       file,
       name: file.name,
@@ -71,9 +84,13 @@ const BatchProcessor = () => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
+      'image/*': ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.gif', '.webp'],
+      'application/pdf': ['.pdf']
     },
-    maxSize: 10 * 1024 * 1024 // 10MB
+    maxSize: 50 * 1024 * 1024, // 50MB - consistent with validation utility
+    multiple: true,
+    noClick: false,
+    noKeyboard: false
   });
 
   const removeFile = (fileId) => {
@@ -110,11 +127,10 @@ const BatchProcessor = () => {
       const images = await Promise.all(imagePromises);
 
       // Process batch
-      const response = await fetch('/api/v3/batch-scan', {
+      const response = await fetch(`${API_URL}/api/v3/batch-scan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
           'X-Session-ID': `batch_${Date.now()}`
         },
         body: JSON.stringify({ images })
@@ -165,13 +181,7 @@ const BatchProcessor = () => {
     });
   };
 
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  const formatFileSize = formatFileSizeUtil; // Use unified utility
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -260,7 +270,7 @@ const BatchProcessor = () => {
               {isDragActive ? 'Drop the documents here' : 'Drag & drop documents or click to browse'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Select multiple files (JPG, PNG, TIFF, BMP - max 10MB each)
+              Select multiple files (JPG, PNG, TIFF, BMP, GIF, WebP, PDF - max 50MB each)
             </Typography>
           </Box>
         </CardContent>
@@ -322,6 +332,7 @@ const BatchProcessor = () => {
                     onClick={() => removeFile(fileItem.id)}
                     disabled={isProcessing}
                     color="error"
+                    aria-label={`Remove ${fileItem.name} from batch`}
                   >
                     <Delete />
                   </IconButton>
@@ -460,6 +471,7 @@ const BatchProcessor = () => {
                             <IconButton
                               onClick={() => toggleRowExpansion(result.id)}
                               size="small"
+                              aria-label={expandedRows[result.id] ? 'Collapse details' : 'Expand details'}
                             >
                               {expandedRows[result.id] ? <ExpandLess /> : <ExpandMore />}
                             </IconButton>

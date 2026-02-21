@@ -69,14 +69,20 @@ const PWAInstallPrompt = () => {
         onClick={handleInstallClick}
         sx={{
           position: 'fixed',
-          top: 16,
+          top: 80,
           right: 16,
-          zIndex: 1300,
+          zIndex: 1200,
           backgroundColor: 'rgba(255, 255, 255, 0.9)',
           backdropFilter: 'blur(10px)',
           border: '1px solid rgba(0, 122, 255, 0.3)',
           '&:hover': {
             backgroundColor: 'rgba(0, 122, 255, 0.1)',
+          },
+          '@media (max-width: 600px)': {
+            top: 70,
+            right: 8,
+            fontSize: '0.8rem',
+            padding: '4px 10px',
           }
         }}
       >
@@ -101,7 +107,7 @@ const PWAInstallPrompt = () => {
             <GetApp sx={{ mr: 1 }} />
             Install OCR Scanner
           </Box>
-          <IconButton onClick={handleInstallCancel} sx={{ color: 'white' }}>
+          <IconButton onClick={handleInstallCancel} aria-label="Close install dialog" sx={{ color: 'white' }}>
             <Close />
           </IconButton>
         </DialogTitle>

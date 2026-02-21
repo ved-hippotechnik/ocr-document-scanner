@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { endpoints } from '../config';
 import {
   Box,
   Grid,
@@ -36,16 +37,16 @@ import {
   Psychology,
   Analytics,
   Speed,
-  Accuracy,
+  CheckCircleOutline as Accuracy,
   TrendingUp,
   Assessment,
-  Feedback,
+  RateReview as Feedback,
   Settings,
   Warning,
   CheckCircle,
   Error,
   Info,
-  ModelTraining,
+  Memory as ModelTraining,
   SmartToy,
   DataUsage,
   BugReport
@@ -71,9 +72,7 @@ const AIDashboard = () => {
       setLoading(true);
       
       // Load AI metrics
-      const metricsResponse = await fetch('/api/ai/metrics', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('authToken')}` }
-      });
+      const metricsResponse = await fetch(endpoints.aiMetrics);
       
       if (metricsResponse.ok) {
         const metricsData = await metricsResponse.json();
@@ -81,7 +80,7 @@ const AIDashboard = () => {
       }
 
       // Load supported document types
-      const typesResponse = await fetch('/api/ai/supported-types');
+      const typesResponse = await fetch(endpoints.aiSupportedTypes);
       if (typesResponse.ok) {
         const typesData = await typesResponse.json();
         setSupportedTypes(typesData.document_types);
@@ -111,11 +110,10 @@ const AIDashboard = () => {
 
   const submitFeedback = async (feedbackData) => {
     try {
-      const response = await fetch('/api/ai/feedback', {
+      const response = await fetch(endpoints.aiFeedback, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(feedbackData)
       });
@@ -131,11 +129,10 @@ const AIDashboard = () => {
 
   const updateConfidenceThreshold = async () => {
     try {
-      const response = await fetch('/api/ai/confidence-threshold', {
+      const response = await fetch(endpoints.aiConfidenceThreshold, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ threshold: confidenceThreshold })
       });

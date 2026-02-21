@@ -155,7 +155,7 @@ const OfflineStatus = () => {
       {/* Offline Alert */}
       <Snackbar
         open={showOfflineAlert}
-        autoHideDuration={6000}
+        autoHideDuration={4000}
         onClose={handleCloseOfflineAlert}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
