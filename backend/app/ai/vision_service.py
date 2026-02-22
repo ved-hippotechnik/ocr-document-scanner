@@ -101,7 +101,7 @@ def _guess_media_type(image_data: bytes) -> str:
         return 'image/gif'
     if image_data[:4] in (b'II*\x00', b'MM\x00*'):
         return 'image/tiff'
-    if image_data[:4] == b'BM':
+    if image_data[:2] == b'BM':
         return 'image/bmp'
     return 'image/jpeg'
 
