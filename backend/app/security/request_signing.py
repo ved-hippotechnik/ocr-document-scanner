@@ -304,8 +304,8 @@ class SecurityHardening:
                     is_safe, patterns = self.scan_for_malicious_content(key)
                     if not is_safe:
                         malicious_strings.extend(patterns)
-                # Skip scanning image data fields
-                if key not in ['image', 'imageData', 'base64', 'file', 'data']:
+                # Skip scanning image data and credential fields
+                if key not in ['image', 'imageData', 'base64', 'file', 'data', 'password', 'secret', 'token', 'api_key']:
                     self._scan_json_values(value, malicious_strings, parent_key=key)
         elif isinstance(obj, list):
             for item in obj:

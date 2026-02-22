@@ -3,7 +3,11 @@ from flask_cors import CORS
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+from dotenv import load_dotenv
 from .celery_app import make_celery
+
+# Load .env file before app creation
+load_dotenv()
 
 def create_app():
     app = Flask(__name__)

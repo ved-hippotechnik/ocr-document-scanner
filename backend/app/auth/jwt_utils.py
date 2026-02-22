@@ -21,8 +21,11 @@ class JWTManager:
         self.app = app
         self.secret_key = app.config.get('JWT_SECRET_KEY', app.secret_key)
         self.algorithm = app.config.get('JWT_ALGORITHM', 'HS256')
-        self.access_token_expires = app.config.get('JWT_ACCESS_TOKEN_EXPIRES', timedelta(hours=24))
-        self.refresh_token_expires = app.config.get('JWT_REFRESH_TOKEN_EXPIRES', timedelta(days=30))
+        access_expires = app.config.get('JWT_ACCESS_TOKEN_EXPIRES', timedelta(hours=24))
+        refresh_expires = app.config.get('JWT_REFRESH_TOKEN_EXPIRES', timedelta(days=30))
+        # Convert int (seconds) to timedelta if needed
+        self.access_token_expires = timedelta(seconds=access_expires) if isinstance(access_expires, (int, float)) else access_expires
+        self.refresh_token_expires = timedelta(seconds=refresh_expires) if isinstance(refresh_expires, (int, float)) else refresh_expires
     
     def generate_tokens(self, user):
         """Generate access and refresh tokens for user"""
