@@ -3,9 +3,13 @@ Base document processor interface for modular OCR processing
 """
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Any, Optional
+import io
+import logging
 import cv2
 import numpy as np
 from PIL import Image
+
+_base_logger = logging.getLogger(__name__)
 
 
 class DocumentProcessor(ABC):
@@ -57,6 +61,10 @@ class DocumentProcessor(ABC):
                 'processor': self.__class__.__name__
             })
 
+            # MRZ extraction for passport-type documents
+            if 'passport' in self.document_type:
+                info = self._try_mrz_extraction(image, info)
+
             # Auto-fallback: if OCR extraction confidence is very low, try Vision
             if ocr_confidence < 0.25:
                 vision_info = self._vision_extract_fallback(image, _logger)
@@ -67,6 +75,9 @@ class DocumentProcessor(ABC):
             # Vision validation (when enabled and service available)
             if validate_with_vision:
                 info = self._vision_validate(image, info, _logger)
+
+            # Add per-field confidence scores
+            info = self._add_field_confidence(info)
 
             return info
 
@@ -194,16 +205,129 @@ class DocumentProcessor(ABC):
     def _calculate_confidence(self, info: Dict[str, Any]) -> float:
         """Calculate processing confidence based on extracted information"""
         confidence = 0.0
-        
+
         # Check for key fields
         key_fields = ['document_number', 'full_name', 'date_of_birth', 'nationality']
-        
+
         for field in key_fields:
             if info.get(field) and str(info[field]).strip():
                 confidence += 0.25
-        
+
         return confidence
+
+    def _add_field_confidence(self, info: Dict[str, Any]) -> Dict[str, Any]:
+        """Add per-field confidence scores to extracted info.
+
+        Produces a 'field_confidence' dict mapping field names to
+        ``{value, confidence, method}`` triples.
+        """
+        metadata_keys = {
+            'document_type', 'processing_method', 'confidence',
+            'country_code', 'processor', 'error', 'raw_text',
+            'vision_validated', 'vision_corrections', 'vision_confidence',
+            'vision_missing_fields', 'vision_assisted', 'vision_notes',
+            'field_confidence',
+        }
+
+        field_conf: Dict[str, Any] = {}
+        for key, value in info.items():
+            if key in metadata_keys:
+                continue
+
+            method = 'regex_match'
+            score = 0.0
+
+            if value and str(value).strip():
+                score = 0.5  # base: has a value
+
+                # Bonus: regex matched a structured pattern (date, ID number)
+                if isinstance(value, str) and len(value) > 1:
+                    score += 0.3
+
+                # Vision corrections override
+                for corr in info.get('vision_corrections', []):
+                    if corr.get('field') == key:
+                        method = 'vision_corrected'
+                        score = 0.85
+                        break
+                else:
+                    if info.get('vision_validated'):
+                        method = 'vision_validated'
+                        score = min(score + 0.15, 1.0)
+
+            field_conf[key] = {
+                'value': value,
+                'confidence': round(min(score, 1.0), 2),
+                'method': method,
+            }
+
+        info['field_confidence'] = field_conf
+        return info
     
+    # ------------------------------------------------------------------
+    # MRZ helpers (used by passport processors)
+    # ------------------------------------------------------------------
+
+    def _try_mrz_extraction(self, image: np.ndarray, info: Dict[str, Any]) -> Dict[str, Any]:
+        """Attempt MRZ extraction from a passport image and fill gaps in *info*.
+
+        Uses ``passporteye.read_mrz`` when available.  Fields are only
+        populated when the regex-based extraction left them empty.
+        """
+        try:
+            from passporteye import read_mrz as _read_mrz
+        except ImportError:
+            return info
+
+        try:
+            # passporteye expects a file-like object
+            pil_img = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            import io as _io
+            buf = _io.BytesIO()
+            pil_img.save(buf, format='JPEG')
+            buf.seek(0)
+
+            mrz = _read_mrz(buf)
+            if mrz is None:
+                return info
+
+            mrz_data = mrz.to_dict()
+
+            # Map MRZ fields → info keys, only fill blanks
+            _map = {
+                'number': 'document_number',
+                'names': 'given_name',
+                'surname': 'surname',
+                'nationality': 'nationality',
+                'sex': 'sex',
+                'date_of_birth': 'date_of_birth',
+                'expiration_date': 'date_of_expiry',
+            }
+
+            for mrz_key, info_key in _map.items():
+                mrz_val = mrz_data.get(mrz_key)
+                if mrz_val and not info.get(info_key):
+                    # Clean angle-bracket padding from passporteye output
+                    if isinstance(mrz_val, str):
+                        mrz_val = mrz_val.replace('<', ' ').strip()
+                    info[info_key] = mrz_val
+
+            # Derive full_name if missing
+            if not info.get('full_name'):
+                given = info.get('given_name', '') or ''
+                surname = info.get('surname', '') or ''
+                full = f"{given} {surname}".strip()
+                if full:
+                    info['full_name'] = full
+
+            info['mrz_parsed'] = True
+        except Exception as exc:
+            _base_logger.debug("MRZ extraction failed: %s", exc)
+
+        return info
+
+    # ------------------------------------------------------------------
+
     def get_display_name(self) -> str:
         """Get human-readable display name for document type"""
         display_names = {
@@ -231,6 +355,93 @@ class DocumentProcessor(ABC):
             'Singapore': 'SGP'
         }
         return country_codes.get(self.country, self.country[:3].upper())
+
+
+def process_pdf(file_bytes: bytes, processor: Optional['DocumentProcessor'] = None,
+                 validate_with_vision: bool = False, max_pages: int = 10) -> List[Dict[str, Any]]:
+    """Convert PDF pages to images and process each page.
+
+    If *processor* is ``None``, each page is auto-detected via the global
+    ``processor_registry``.
+    """
+    try:
+        from pdf2image import convert_from_bytes
+    except ImportError:
+        return [{'error': 'pdf2image not installed — run: pip install pdf2image', 'page': 1}]
+
+    try:
+        images = convert_from_bytes(file_bytes, dpi=300)
+    except Exception as e:
+        return [{'error': f'PDF conversion failed: {e}', 'page': 1}]
+
+    results = []
+    for i, pil_img in enumerate(images[:max_pages]):
+        img_array = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+        page_processor = processor
+        if page_processor is None:
+            # Auto-detect document type per page
+            import pytesseract
+            gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+            text = pytesseract.image_to_string(gray)
+            _, page_processor = processor_registry.detect_document_type(text, img_array)
+
+        if page_processor:
+            result = page_processor.process(img_array, validate_with_vision=validate_with_vision)
+        else:
+            result = {'error': 'Could not detect document type', 'raw_text': text[:500] if 'text' in dir() else ''}
+
+        result['page'] = i + 1
+        results.append(result)
+    return results
+
+
+def dewarp_document(image: np.ndarray) -> np.ndarray:
+    """Detect document edges and apply perspective correction.
+
+    Falls back to the original image if a quadrilateral contour
+    cannot be found.
+    """
+    orig = image.copy()
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    for cnt in contours[:5]:
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+        if len(approx) == 4:
+            pts = approx.reshape(4, 2).astype('float32')
+            # Order: top-left, top-right, bottom-right, bottom-left
+            s = pts.sum(axis=1)
+            d = np.diff(pts, axis=1)
+            ordered = np.array([
+                pts[np.argmin(s)],
+                pts[np.argmin(d)],
+                pts[np.argmax(s)],
+                pts[np.argmax(d)],
+            ], dtype='float32')
+
+            w = max(
+                np.linalg.norm(ordered[0] - ordered[1]),
+                np.linalg.norm(ordered[2] - ordered[3]),
+            )
+            h = max(
+                np.linalg.norm(ordered[0] - ordered[3]),
+                np.linalg.norm(ordered[1] - ordered[2]),
+            )
+
+            dst = np.array([
+                [0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]
+            ], dtype='float32')
+
+            M = cv2.getPerspectiveTransform(ordered, dst)
+            return cv2.warpPerspective(orig, M, (int(w), int(h)))
+
+    return orig  # no quad found
 
 
 class ProcessorRegistry:

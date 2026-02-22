@@ -12,23 +12,10 @@ import time
 import logging
 import re
 import uuid
-import sys
 import os
 
-# Import enhanced processors if available
-try:
-    # Add project root to path
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-    
-    # from enhanced_image_processor import EnhancedImageProcessor, ProfessionalTestImageGenerator
-    # from performance_optimizer import ParallelOCRProcessor, IntelligentPreprocessor
-    ENHANCED_PROCESSING_AVAILABLE = True
-    print("✅ Enhanced processing modules loaded successfully")
-except ImportError as e:
-    ENHANCED_PROCESSING_AVAILABLE = False
-    print(f"⚠️  Enhanced processing not available: {e}")
+# Enhanced processing modules are not available (legacy imports removed)
+ENHANCED_PROCESSING_AVAILABLE = False
 
 # from .monitoring import setup_metrics, track_document_processing, performance_monitor
 
@@ -71,15 +58,6 @@ intelligent_preprocessor = None
 enhanced = Blueprint('enhanced', __name__)
 logger = logging.getLogger(__name__)
 
-if ENHANCED_PROCESSING_AVAILABLE:
-    try:
-        enhanced_image_processor = EnhancedImageProcessor()
-        parallel_ocr_processor = ParallelOCRProcessor(num_workers=4)
-        intelligent_preprocessor = IntelligentPreprocessor()
-        logger.info("🚀 Enhanced processing engines initialized")
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize enhanced processors: {e}")
-        ENHANCED_PROCESSING_AVAILABLE = False
 
 # Store enhanced processing statistics
 enhanced_stats = {
@@ -579,149 +557,9 @@ def check_ocr_engine() -> bool:
         return False
 
 
-@enhanced.route('/async/scan', methods=['POST'])
-@validate_request_json()
-@handle_processing_errors()
-def async_scan(validated_data):
-    """
-    Start asynchronous document processing
-    """
-    try:
-        # Extract image data and options
-        image_data = validated_data.get('image_data')
-        document_type = validated_data.get('document_type')
-        options = validated_data.get('options', {})
-        
-        # Add session ID to options
-        options['session_id'] = request.headers.get('X-Session-ID', str(uuid.uuid4()))
-        
-        # Start async task
-        task = process_document_async.delay(image_data, document_type, options)
-        
-        return jsonify({
-            'task_id': task.id,
-            'status': 'accepted',
-            'message': 'Document processing started',
-            'check_url': f'/api/v2/async/status/{task.id}'
-        }), 202
-        
-    except Exception as e:
-        logger.error(f"Failed to start async processing: {str(e)}")
-        return jsonify({'error': 'Failed to start processing'}), 500
-
-
-@enhanced.route('/async/batch', methods=['POST'])
-@validate_request_json()
-@handle_processing_errors() 
-def async_batch_scan(validated_data):
-    """
-    Start asynchronous batch document processing
-    """
-    try:
-        batch_data = validated_data.get('documents', [])
-        
-        if not batch_data or len(batch_data) == 0:
-            return jsonify({'error': 'No documents provided'}), 400
-        
-        if len(batch_data) > 50:  # Limit batch size
-            return jsonify({'error': 'Batch size cannot exceed 50 documents'}), 400
-        
-        # Start batch processing task
-        task = process_batch_documents.delay(batch_data)
-        
-        return jsonify({
-            'batch_id': task.id,
-            'status': 'accepted',
-            'total_documents': len(batch_data),
-            'message': 'Batch processing started',
-            'check_url': f'/api/v2/async/status/{task.id}'
-        }), 202
-        
-    except Exception as e:
-        logger.error(f"Failed to start batch processing: {str(e)}")
-        return jsonify({'error': 'Failed to start batch processing'}), 500
-
-
-@enhanced.route('/async/status/<task_id>', methods=['GET'])
-def get_task_status(task_id):
-    """
-    Get the status of an async task
-    """
-    try:
-        from .tasks import celery
-        
-        task = celery.AsyncResult(task_id)
-        
-        if task.state == 'PENDING':
-            response = {
-                'task_id': task_id,
-                'state': task.state,
-                'status': 'Task is waiting to be processed',
-                'progress': 0
-            }
-        elif task.state == 'PROCESSING':
-            response = {
-                'task_id': task_id,
-                'state': task.state,
-                'status': task.info.get('status', 'Processing'),
-                'progress': task.info.get('progress', 0),
-                'completed': task.info.get('completed', 0),
-                'total': task.info.get('total', 1)
-            }
-        elif task.state == 'SUCCESS':
-            response = {
-                'task_id': task_id,
-                'state': task.state,
-                'status': 'Task completed successfully',
-                'progress': 100,
-                'result': task.result
-            }
-        elif task.state == 'FAILURE':
-            response = {
-                'task_id': task_id,
-                'state': task.state,
-                'status': 'Task failed',
-                'error': str(task.info),
-                'progress': 0
-            }
-        else:
-            response = {
-                'task_id': task_id,
-                'state': task.state,
-                'status': 'Unknown task state',
-                'progress': 0
-            }
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"Failed to get task status: {str(e)}")
-        return jsonify({
-            'task_id': task_id,
-            'state': 'ERROR',
-            'error': 'Failed to retrieve task status'
-        }), 500
-
-
-@enhanced.route('/async/cancel/<task_id>', methods=['POST'])
-def cancel_task(task_id):
-    """
-    Cancel a running async task
-    """
-    try:
-        from .tasks import celery
-        
-        celery.control.revoke(task_id, terminate=True)
-        
-        return jsonify({
-            'task_id': task_id,
-            'status': 'cancelled',
-            'message': 'Task cancellation requested'
-        })
-        
-    except Exception as e:
-        logger.error(f"Failed to cancel task: {str(e)}")
-        return jsonify({'error': 'Failed to cancel task'}), 500
+# NOTE: Async endpoints (/async/scan, /async/batch, /async/status, /async/cancel)
+# have been removed from this file to avoid duplication with routes_async.py
+# which provides the canonical /api/async/* endpoints.
 
 
 @enhanced.route('/api/v2/cache/stats', methods=['GET'])

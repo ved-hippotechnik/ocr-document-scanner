@@ -23,7 +23,7 @@ class TestAuth(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment"""
-        self.app = create_app()
+        self.app, self.socketio = create_app()
         self.app.config['TESTING'] = True
         self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         self.app.config['SECRET_KEY'] = 'test-secret-key'
@@ -40,7 +40,7 @@ class TestAuth(unittest.TestCase):
                 username='testuser',
                 first_name='Test',
                 last_name='User',
-                role=UserRole.USER
+                role='user'
             )
             self.test_user.set_password('TestPass123!')
             
@@ -50,7 +50,7 @@ class TestAuth(unittest.TestCase):
                 username='adminuser',
                 first_name='Admin',
                 last_name='User',
-                role=UserRole.ADMIN
+                role='admin'
             )
             self.admin_user.set_password('AdminPass123!')
             

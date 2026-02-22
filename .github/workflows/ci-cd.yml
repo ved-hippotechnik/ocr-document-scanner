@@ -27,16 +27,26 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-hin
     
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
     - name: Install Python dependencies
       run: |
         cd backend
         pip install -r requirements.txt
         pip install pytest pytest-cov
-    
+
     - name: Run backend tests
+      env:
+        RATE_LIMIT_ENABLED: 'false'
       run: |
         cd backend
-        python -m pytest tests/ --cov=app --cov-report=xml
+        python -m pytest tests/ -v --cov=app --cov-report=xml
     
     - name: Set up Node.js
       uses: actions/setup-node@v4

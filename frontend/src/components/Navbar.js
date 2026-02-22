@@ -168,6 +168,15 @@ const Navbar = () => {
             >
               AI Analytics
             </AppleNavButton>
+            <AppleNavButton
+              component={RouterLink}
+              to="/admin"
+              active={location.pathname === '/admin' ? 1 : 0}
+              startIcon={<DashboardIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
+            >
+              Admin
+            </AppleNavButton>
           </Box>
           
           {/* Mobile Menu Button */}
@@ -269,6 +278,19 @@ const Navbar = () => {
                   <Analytics color={location.pathname === '/ai-dashboard' ? 'primary' : 'inherit'} />
                 </ListItemIcon>
                 <ListItemText primary="AI Analytics" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
+                to="/admin"
+                selected={location.pathname === '/admin'}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <DashboardIcon color={location.pathname === '/admin' ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="Admin" />
               </ListItemButton>
             </ListItem>
           </List>

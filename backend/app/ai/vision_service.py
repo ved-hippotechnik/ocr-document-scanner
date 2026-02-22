@@ -8,6 +8,7 @@ Provides a hybrid VLM layer that:
 """
 
 import base64
+import hashlib
 import json
 import logging
 import mimetypes
@@ -114,6 +115,22 @@ class ClaudeVisionService:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
         self.timeout = 30
+        self._cache = None
+
+    def _get_cache(self):
+        """Lazy-load the cache manager from the app context."""
+        if self._cache is None:
+            try:
+                from flask import current_app
+                if hasattr(current_app, 'cache') and hasattr(current_app.cache, 'get_vision_result'):
+                    self._cache = current_app.cache
+            except RuntimeError:
+                pass
+        return self._cache
+
+    @staticmethod
+    def _image_hash(image_data: bytes) -> str:
+        return hashlib.md5(image_data).hexdigest()
 
     def _encode_image(self, image_data: bytes) -> tuple:
         """Encode image bytes to base64 and detect media type."""
@@ -138,6 +155,16 @@ class ClaudeVisionService:
                 'classifier': 'vision',
             }
         """
+        # Check cache first
+        img_hash = self._image_hash(image_data)
+        cache = self._get_cache()
+        if cache:
+            cached = cache.get_vision_result(img_hash, 'classify')
+            if cached:
+                logger.debug(f"Vision classify cache hit: {img_hash[:12]}")
+                cached['cached'] = True
+                return cached
+
         media_type, b64 = self._encode_image(image_data)
         known_types = ', '.join(DOCUMENT_TYPE_MAP.values())
 
@@ -186,13 +213,19 @@ class ClaudeVisionService:
             doc_code = DISPLAY_NAME_TO_CODE.get(doc_type_raw, 'unknown')
             doc_name = DOCUMENT_TYPE_MAP.get(doc_code, 'Unknown Document')
 
-            return {
+            classification = {
                 'document_type': doc_code,
                 'document_name': doc_name,
                 'confidence': float(result.get('confidence', 0.0)),
                 'reasoning': result.get('reasoning', ''),
                 'classifier': 'vision',
             }
+
+            # Cache successful result
+            if cache and doc_code != 'unknown':
+                cache.set_vision_result(img_hash, 'classify', classification)
+
+            return classification
 
         except Exception as e:
             logger.error(f"Vision classification failed: {e}")
@@ -226,6 +259,17 @@ class ClaudeVisionService:
                 'missing_fields': [str, ...],
             }
         """
+        # Cache key combines image hash + fields hash for validation
+        img_hash = self._image_hash(image_data)
+        fields_hash = hashlib.md5(json.dumps(extracted_info, sort_keys=True, default=str).encode()).hexdigest()
+        cache_key = f"{img_hash}_{fields_hash}"
+        cache = self._get_cache()
+        if cache:
+            cached = cache.get_vision_result(cache_key, 'validate')
+            if cached:
+                logger.debug(f"Vision validate cache hit: {cache_key[:12]}")
+                return cached
+
         media_type, b64 = self._encode_image(image_data)
 
         # Build a clean representation of extracted fields
@@ -289,12 +333,17 @@ class ClaudeVisionService:
 
             result = json.loads(raw)
 
-            return {
+            validation = {
                 'verified_fields': result.get('verified_fields', {}),
                 'corrections': result.get('corrections', []),
                 'missing_fields': result.get('missing_fields', []),
                 'confidence': float(result.get('confidence', 0.0)),
             }
+
+            if cache:
+                cache.set_vision_result(cache_key, 'validate', validation)
+
+            return validation
 
         except Exception as e:
             logger.error(f"Vision field validation failed: {e}")

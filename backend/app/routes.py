@@ -12,7 +12,7 @@ import pytesseract
 from passporteye import read_mrz
 from .processors.registry import processor_registry
 from .rate_limiter import ratelimit_scan, ratelimit_medium, ratelimit_light
-from .language_detector import get_languages_info, validate_language
+from .language_detector import get_languages_info, validate_language, detect_language
 
 main = Blueprint('main', __name__)
 
@@ -809,14 +809,15 @@ def scan_document():
     file_bytes = file.read()
     if not file_bytes or len(file_bytes) == 0:
         return jsonify({'error': 'Empty file provided'}), 400
-    
-    # Read and process the image
-    img = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
-    
-    # Check if image could be decoded
-    if img is None:
-        return jsonify({'error': 'Invalid image file - could not decode image data'}), 400
-    
+
+    # Duplicate detection
+    duplicate_info = None
+    detector = getattr(current_app, 'duplicate_detector', None)
+    if detector and detector.available:
+        dup = detector.check_duplicate(file_bytes)
+        if dup:
+            duplicate_info = dup
+
     # Read optional language parameter from form data
     language = request.form.get('language', None)
     if language and not validate_language(language):
@@ -825,18 +826,47 @@ def scan_document():
     # Read optional Vision validation toggle
     validate_with_vision = request.form.get('validate_with_vision', 'false').lower() == 'true'
 
+    # PDF handling — convert to images and process each page
+    is_pdf = (file.filename and file.filename.lower().endswith('.pdf')) or file_bytes[:5] == b'%PDF-'
+    if is_pdf:
+        from .processors import process_pdf as _process_pdf
+        # Use first available processor or let each page auto-detect
+        results = _process_pdf(file_bytes, processor=None, validate_with_vision=validate_with_vision)
+        if results and len(results) == 1 and results[0].get('error'):
+            return jsonify({'error': results[0]['error']}), 400
+        return jsonify({
+            'document_type': 'PDF Document',
+            'pages': len(results),
+            'results': results,
+            'processing_method': 'pdf_multipage',
+            'confidence': 'high' if results else 'low'
+        })
+
+    # Read and process the image
+    img = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_COLOR)
+
+    # Check if image could be decoded
+    if img is None:
+        return jsonify({'error': 'Invalid image file - could not decode image data'}), 400
+
     # Initial OCR scan to detect document type
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     initial_text = pytesseract.image_to_string(gray)
 
     print(f"DEBUG: Initial OCR text preview: {initial_text[:200]}...")
 
+    # Auto-detect language if not explicitly provided
+    if not language:
+        language = detect_language(initial_text)
+        if language != 'eng':
+            print(f"DEBUG: Auto-detected language: {language}")
+
     # Use processor registry to detect document type and get appropriate processor
     doc_display_name, processor = processor_registry.detect_document_type(initial_text, img)
-    
+
     if processor:
         print(f"DEBUG: Detected document type: {doc_display_name} using {processor.__class__.__name__}")
-        
+
         # Use the specific processor to extract information
         doc_info = processor.process(img, language=language, validate_with_vision=validate_with_vision)
         
@@ -971,15 +1001,33 @@ def scan_document():
     
     document_stats['documents'] = document_stats.get('documents', [])
     document_stats['documents'].append(document_record)
-    
-    return jsonify({
+
+    # Register document hash for future duplicate detection
+    if detector and detector.available:
+        detector.register(
+            file_bytes,
+            scan_id=scan_record['timestamp'],
+            document_type=doc_type,
+            timestamp=scan_record['timestamp'],
+        )
+
+    response = {
         'document_type': display_doc_type,
         'nationality': nationality,
         'extracted_info': doc_info,
         'extracted_text': text,
         'processing_method': processing_method,
-        'confidence': confidence
-    })
+        'confidence': confidence,
+    }
+
+    if duplicate_info:
+        response['duplicate_warning'] = {
+            'is_duplicate': True,
+            'distance': duplicate_info.get('distance'),
+            'matching_scan': duplicate_info.get('matching_scan'),
+        }
+
+    return jsonify(response)
 
 @main.route('/api/stats', methods=['GET'])
 @ratelimit_light()

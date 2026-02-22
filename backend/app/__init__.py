@@ -127,16 +127,6 @@ def create_app():
     else:
         socketio = None
     
-    # Initialize Enhanced OCR System
-    app.logger.info("Initializing Enhanced OCR System...")
-    try:
-        from .enhanced_ocr_complete import EnhancedOCRSystem
-        app.enhanced_ocr = EnhancedOCRSystem()
-        app.logger.info("✅ Enhanced OCR System initialized successfully")
-    except Exception as e:
-        app.logger.error(f"❌ Failed to initialize Enhanced OCR System: {e}")
-        app.enhanced_ocr = None
-    
     # Initialize ML Document Classifier
     try:
         from .ml_document_classifier import MLDocumentClassifier
@@ -188,19 +178,42 @@ def create_app():
     except Exception as e:
         app.logger.error(f"❌ Failed to initialize Performance Optimizer: {e}")
         app.performance_optimizer = None
-    
+
+    # Initialize Duplicate Detector
+    try:
+        from .duplicate_detector import DuplicateDetector
+        app.duplicate_detector = DuplicateDetector()
+        if app.duplicate_detector.available:
+            app.logger.info("✅ Duplicate Detector initialized")
+        else:
+            app.logger.info("ℹ️ Duplicate Detector disabled (imagehash not installed)")
+    except Exception as e:
+        app.logger.warning(f"Duplicate Detector init failed: {e}")
+        app.duplicate_detector = None
+
     # Logging Configuration
     if not app.debug and not app.testing:
         log_level = getattr(logging, os.environ.get('LOG_LEVEL', 'INFO').upper())
         log_file = os.environ.get('LOG_FILE', 'app.log')
-        
+
         if not os.path.exists('logs'):
             os.mkdir('logs')
-        
-        file_handler = RotatingFileHandler(f'logs/{log_file}', maxBytes=10240, backupCount=10)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
+
+        file_handler = RotatingFileHandler(f'logs/{log_file}', maxBytes=1048576, backupCount=10)
+
+        # Use structured JSON logging if pythonjsonlogger is available
+        try:
+            from pythonjsonlogger import jsonlogger
+            formatter = jsonlogger.JsonFormatter(
+                '%(asctime)s %(levelname)s %(name)s %(message)s %(pathname)s %(lineno)d',
+                rename_fields={'asctime': 'timestamp', 'levelname': 'level'}
+            )
+        except ImportError:
+            formatter = logging.Formatter(
+                '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+            )
+
+        file_handler.setFormatter(formatter)
         file_handler.setLevel(log_level)
         app.logger.addHandler(file_handler)
         app.logger.setLevel(log_level)

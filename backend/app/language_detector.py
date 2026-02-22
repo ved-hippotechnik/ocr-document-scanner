@@ -65,6 +65,44 @@ def validate_language(lang: str) -> bool:
     return all(code in available for code in codes)
 
 
+def detect_language(text: str) -> str:
+    """Auto-detect the language of *text* and return a Tesseract code.
+
+    Falls back to ``'eng'`` when ``langdetect`` is not installed or
+    detection fails.
+    """
+    if not text or len(text.strip()) < 20:
+        return 'eng'
+
+    try:
+        from langdetect import detect
+    except ImportError:
+        logger.debug("langdetect not installed — defaulting to eng")
+        return 'eng'
+
+    _lang_map = {
+        'en': 'eng', 'hi': 'hin', 'ar': 'ara', 'fr': 'fra',
+        'de': 'deu', 'es': 'spa', 'pt': 'por', 'it': 'ita',
+        'ja': 'jpn', 'ko': 'kor', 'zh-cn': 'chi_sim',
+        'zh-tw': 'chi_tra', 'ru': 'rus', 'th': 'tha',
+        'vi': 'vie', 'tr': 'tur', 'pl': 'pol', 'nl': 'nld',
+        'ta': 'tam', 'te': 'tel', 'kn': 'kan', 'ml': 'mal',
+        'bn': 'ben', 'gu': 'guj', 'mr': 'mar', 'pa': 'pan',
+        'ur': 'urd',
+    }
+
+    try:
+        detected = detect(text)
+        tess_code = _lang_map.get(detected, 'eng')
+        # Only return if Tesseract actually has this language installed
+        if validate_language(tess_code):
+            return tess_code
+        return 'eng'
+    except Exception as exc:
+        logger.debug("Language detection failed: %s", exc)
+        return 'eng'
+
+
 def get_languages_info() -> List[Dict[str, str]]:
     """Return available languages with display names"""
     available = get_available_languages()

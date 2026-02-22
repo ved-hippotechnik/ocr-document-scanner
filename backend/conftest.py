@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from app import create_app
 from app.database import db, User, ScanHistory
-from app.auth.jwt_utils import generate_tokens
+from app.auth.jwt_utils import jwt_manager
 
 
 @pytest.fixture(scope='session')
@@ -74,7 +74,7 @@ def auth_headers(app):
         db.session.commit()
         
         # Generate tokens
-        tokens = generate_tokens(user)
+        tokens = jwt_manager.generate_tokens(user)
         
         return {
             'Authorization': f'Bearer {tokens["access_token"]}',
@@ -85,7 +85,7 @@ def auth_headers(app):
 @pytest.fixture
 def mock_ocr_system():
     """Mock OCR system for testing"""
-    with patch('app.enhanced_ocr_complete.EnhancedOCRSystem') as mock:
+    with patch('app.processors.processor_registry') as mock:
         mock_instance = Mock()
         mock_instance.process_document.return_value = {
             'success': True,

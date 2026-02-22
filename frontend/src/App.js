@@ -9,6 +9,7 @@ import Scanner from './pages/Scanner';
 import AIScanner from './components/AIScanner';
 import BatchProcessor from './components/BatchProcessor';
 import AIDashboard from './components/AIDashboard';
+import AdminDashboard from './components/AdminDashboard';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OfflineStatus from './components/OfflineStatus';
 import UpdatePrompt from './components/UpdatePrompt';
@@ -226,6 +227,11 @@ function App() {
                 <Route path="/ai-dashboard" element={
                   <ErrorBoundary fallbackMessage="AI Dashboard failed to load">
                     <AIDashboard />
+                  </ErrorBoundary>
+                } />
+                <Route path="/admin" element={
+                  <ErrorBoundary fallbackMessage="Admin Dashboard failed to load">
+                    <AdminDashboard />
                   </ErrorBoundary>
                 } />
               </Routes>

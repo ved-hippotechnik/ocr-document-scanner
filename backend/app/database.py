@@ -255,12 +255,44 @@ class SystemMetrics(db.Model):
             'timestamp': self.timestamp.isoformat() if self.timestamp else None
         }
 
+def _fix_login_attempts_schema(app):
+    """Fix login_attempts table if it has wrong column names (username instead of email)"""
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+
+    if 'login_attempts' not in inspector.get_table_names():
+        return  # Table doesn't exist yet, create_all will handle it
+
+    columns = {col['name'] for col in inspector.get_columns('login_attempts')}
+    if 'username' in columns and 'email' not in columns:
+        app.logger.warning("Fixing login_attempts schema: renaming 'username' to 'email'")
+        try:
+            # SQLite doesn't support ALTER COLUMN RENAME, so recreate the table
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE login_attempts RENAME TO login_attempts_old"))
+            db.create_all()
+            with db.engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO login_attempts (id, email, ip_address, user_agent, success, attempted_at, user_id)
+                    SELECT id, username, ip_address, user_agent, success, attempted_at, user_id
+                    FROM login_attempts_old
+                """))
+                conn.execute(text("DROP TABLE login_attempts_old"))
+            app.logger.info("login_attempts schema fixed successfully")
+        except Exception as e:
+            app.logger.error(f"Failed to fix login_attempts schema: {e}")
+            db.session.rollback()
+
+
 def init_db(app):
     """Initialize database with Flask app"""
     db.init_app(app)
     migrate.init_app(app, db)
-    
+
     with app.app_context():
+        # Fix schema mismatches before create_all
+        _fix_login_attempts_schema(app)
+
         # Create tables if they don't exist
         db.create_all()
         

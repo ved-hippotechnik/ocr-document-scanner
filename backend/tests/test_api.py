@@ -24,7 +24,7 @@ class TestAPIEndpoints(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment"""
-        self.app = create_app()
+        self.app, self.socketio = create_app()
         self.app.config['TESTING'] = True
         self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         self.app.config['SECRET_KEY'] = 'test-secret-key'
@@ -41,7 +41,7 @@ class TestAPIEndpoints(unittest.TestCase):
                 username='testuser',
                 first_name='Test',
                 last_name='User',
-                role=UserRole.USER
+                role='user'
             )
             self.test_user.set_password('TestPass123!')
             
@@ -372,7 +372,7 @@ class TestAsyncEndpoints(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment"""
-        self.app = create_app()
+        self.app, self.socketio = create_app()
         self.app.config['TESTING'] = True
         self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         self.app.config['SECRET_KEY'] = 'test-secret-key'
@@ -387,7 +387,7 @@ class TestAsyncEndpoints(unittest.TestCase):
             self.test_user = User(
                 email='test@example.com',
                 username='testuser',
-                role=UserRole.USER
+                role='user'
             )
             self.test_user.set_password('TestPass123!')
             

@@ -263,16 +263,29 @@ class MemoryCacheManager:
         
         return stats
     
+    def get_vision_result(self, image_hash: str, operation: str) -> Optional[Dict]:
+        """Get cached Vision API result"""
+        key = f"vision:{operation}:{image_hash}"
+        return self.cache.get(key)
+
+    def set_vision_result(self, image_hash: str, operation: str, result: Dict, ttl: int = None) -> bool:
+        """Cache Vision API result (default TTL: 1 hour for classify, 30 min for validate)"""
+        key = f"vision:{operation}:{image_hash}"
+        default_ttl = 3600 if operation == 'classify' else 1800
+        return self.cache.set(key, result, ttl or default_ttl)
+
     def clear_all(self) -> Dict[str, int]:
         """Clear all caches"""
         ocr_cleared = self.cache.clear_pattern("ocr:*")
         doc_cleared = self.cache.clear_pattern("doc:*")
         session_cleared = self.cache.clear_pattern("session:*")
-        
+        vision_cleared = self.cache.clear_pattern("vision:*")
+
         return {
             'ocr_cache': ocr_cleared,
             'document_cache': doc_cleared,
-            'session_cache': session_cleared
+            'session_cache': session_cleared,
+            'vision_cache': vision_cleared,
         }
 
 # Global memory cache manager instance
