@@ -91,6 +91,12 @@ class DocumentProcessor(ABC):
 
     def _vision_validate(self, image: np.ndarray, info: Dict[str, Any], _logger) -> Dict[str, Any]:
         """Run Claude Vision validation on extracted fields."""
+        from ..circuit_breaker import vision_breaker
+
+        if not vision_breaker.allow_request():
+            _logger.warning("Vision circuit breaker OPEN, skipping validation")
+            return info
+
         try:
             from flask import current_app
             vision_service = getattr(current_app, 'vision_service', None)
@@ -104,6 +110,7 @@ class DocumentProcessor(ABC):
             validation = vision_service.validate_extracted_fields(
                 image_bytes, info, self.document_type
             )
+            vision_breaker.record_success()
 
             if validation.get('corrections'):
                 info = self._apply_corrections(info, validation['corrections'])
@@ -115,7 +122,8 @@ class DocumentProcessor(ABC):
         except RuntimeError:
             pass  # Outside Flask app context
         except Exception as e:
-            _logger.warning(f"Vision validation skipped: {e}")
+            vision_breaker.record_failure()
+            _logger.warning(f"Vision validation failed: {e}")
 
         return info
 
@@ -131,6 +139,12 @@ class DocumentProcessor(ABC):
 
     def _vision_extract_fallback(self, image: np.ndarray, _logger) -> Optional[Dict[str, Any]]:
         """Attempt full field extraction via Claude Vision when OCR confidence is very low."""
+        from ..circuit_breaker import vision_breaker
+
+        if not vision_breaker.allow_request():
+            _logger.warning("Vision circuit breaker OPEN, skipping extraction fallback")
+            return None
+
         try:
             from flask import current_app
             vision_service = getattr(current_app, 'vision_service', None)
@@ -140,10 +154,13 @@ class DocumentProcessor(ABC):
             _, buf = cv2.imencode('.jpg', image)
             image_bytes = buf.tobytes()
 
-            return vision_service.extract_fields_direct(image_bytes, self.document_type)
+            result = vision_service.extract_fields_direct(image_bytes, self.document_type)
+            vision_breaker.record_success()
+            return result
         except RuntimeError:
             return None
         except Exception as e:
+            vision_breaker.record_failure()
             _logger.warning(f"Vision extraction fallback failed: {e}")
             return None
 
@@ -168,21 +185,41 @@ class DocumentProcessor(ABC):
         """Perform OCR on preprocessed images"""
         import pytesseract
         import re as _re
+        from ..circuit_breaker import tesseract_breaker
 
         text_results = []
         configs = self._get_ocr_configs()
+
+        # Read configurable timeout (default 60s)
+        ocr_timeout = 60
+        try:
+            from flask import current_app
+            ocr_timeout = current_app.config.get('OCR_TIMEOUT', 60)
+        except RuntimeError:
+            pass
 
         # If an explicit language was requested, override -l in every config
         if language:
             configs = [_re.sub(r'-l\s+\S+', f'-l {language}', c) for c in configs]
 
         for image in images:
+            if not tesseract_breaker.allow_request():
+                _base_logger.warning("Tesseract circuit breaker OPEN, skipping OCR")
+                break
             for config in configs:
                 try:
-                    text = pytesseract.image_to_string(image, config=config)
+                    text = pytesseract.image_to_string(
+                        image, config=config, timeout=ocr_timeout
+                    )
+                    tesseract_breaker.record_success()
                     if text.strip():
                         text_results.append(text)
+                except RuntimeError:
+                    tesseract_breaker.record_failure()
+                    _base_logger.error("Tesseract OCR timed out after %ds", ocr_timeout)
+                    continue
                 except Exception:
+                    tesseract_breaker.record_failure()
                     continue
 
         return text_results
@@ -383,7 +420,7 @@ def process_pdf(file_bytes: bytes, processor: Optional['DocumentProcessor'] = No
             # Auto-detect document type per page
             import pytesseract
             gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
-            text = pytesseract.image_to_string(gray)
+            text = pytesseract.image_to_string(gray, timeout=60)
             _, page_processor = processor_registry.detect_document_type(text, img_array)
 
         if page_processor:

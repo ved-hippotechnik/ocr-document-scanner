@@ -13,20 +13,20 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
-    
+        python-version: '3.10'
+
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-hin
-    
+
     - name: Cache pip dependencies
       uses: actions/cache@v4
       with:
@@ -39,30 +39,30 @@ jobs:
       run: |
         cd backend
         pip install -r requirements.txt
-        pip install pytest pytest-cov
+        pip install pytest pytest-cov pip-audit
 
-    - name: Run backend tests
+    - name: Run backend tests with coverage threshold
       env:
         RATE_LIMIT_ENABLED: 'false'
       run: |
         cd backend
-        python -m pytest tests/ -v --cov=app --cov-report=xml
-    
+        python -m pytest tests/ -v --cov=app --cov-report=xml --cov-fail-under=50
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
+
     - name: Install frontend dependencies
       run: |
         cd frontend
         npm ci
-    
+
     - name: Run frontend tests
       run: |
         cd frontend
         npm test -- --coverage --watchAll=false
-    
+
     - name: Build frontend
       run: |
         cd frontend
@@ -71,10 +71,36 @@ jobs:
   security:
     runs-on: ubuntu-latest
     needs: test
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies for audit
+      run: |
+        cd backend
+        pip install -r requirements.txt
+        pip install pip-audit
+
+    - name: Python dependency security audit
+      run: |
+        cd backend
+        pip-audit -r requirements.txt --desc || true
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Node.js dependency security audit
+      run: |
+        cd frontend
+        npm audit --audit-level=high || true
+
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
@@ -82,7 +108,7 @@ jobs:
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
-    
+
     - name: Upload Trivy scan results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v2
       if: always()
@@ -93,22 +119,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     permissions:
       contents: read
       packages: write
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    
+
     - name: Log in to Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    
+
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
@@ -119,7 +145,7 @@ jobs:
           type=ref,event=pr
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
-    
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
@@ -133,10 +159,29 @@ jobs:
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
     environment: production
-    
+
     steps:
-    - name: Deploy to production
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Deploy with Docker Compose
+      env:
+        IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "🚀 Deployment step - configure your deployment method here"
-        echo "Options: Railway, Render, DigitalOcean, AWS, etc."
-        # Add your deployment commands here
+        echo "Deploying image tag: ${IMAGE_TAG}"
+        # Pull the latest image built in the previous step
+        # docker compose -f docker-compose.yml pull
+        # docker compose -f docker-compose.yml up -d --remove-orphans
+        # Verify deployment health
+        # for i in $(seq 1 30); do
+        #   if curl -sf http://localhost:5000/health; then
+        #     echo "Deployment healthy"
+        #     exit 0
+        #   fi
+        #   echo "Waiting for service to be healthy... ($i/30)"
+        #   sleep 5
+        # done
+        # echo "Deployment health check failed — rolling back"
+        # docker compose -f docker-compose.yml rollback 2>/dev/null || true
+        # exit 1
+        echo "Deployment commands are commented out — configure your target environment above"

@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify, current_app
-from ..database import db, User, LoginAttempt
+from ..database import db, User, LoginAttempt, ApiKey
 
 class JWTManager:
     """JWT token management"""
@@ -124,24 +124,26 @@ def token_required(f):
     return decorated
 
 def api_key_required(f):
-    """Decorator to require valid API key"""
+    """Decorator to require valid API key via X-API-Key header"""
     @wraps(f)
     def decorated(*args, **kwargs):
-        api_key = request.headers.get('X-API-Key')
-        
-        if not api_key:
+        raw_key = request.headers.get('X-API-Key')
+
+        if not raw_key:
             return jsonify({'error': 'API key is missing'}), 401
-        
-        # ApiKey functionality disabled temporarily - always return error
-        return jsonify({'error': 'API key authentication temporarily disabled'}), 503
-        # api_key_obj.user.increment_api_calls()
-        # 
-        # # Add current user to request context
-        # request.current_user = api_key_obj.user
-        # request.current_api_key = api_key_obj
-        # 
-        # return f(*args, **kwargs)
-    
+
+        api_key_obj = ApiKey.verify(raw_key)
+        if api_key_obj is None:
+            return jsonify({'error': 'Invalid or expired API key'}), 401
+
+        # Per-key rate limiting
+        if not check_rate_limit(api_key_obj.user, requests_per_minute=api_key_obj.rate_limit):
+            return jsonify({'error': 'Rate limit exceeded'}), 429
+
+        request.current_user = api_key_obj.user
+        request.current_api_key = api_key_obj
+        return f(*args, **kwargs)
+
     return decorated
 
 def token_or_api_key_required(f):
@@ -154,7 +156,7 @@ def token_or_api_key_required(f):
             try:
                 token = auth_header.split(' ')[1]
                 payload = jwt_manager.decode_token(token)
-                
+
                 if 'error' not in payload and payload.get('type') == 'access':
                     current_user = User.query.get(payload['user_id'])
                     if current_user and current_user.is_active:
@@ -162,16 +164,39 @@ def token_or_api_key_required(f):
                         return f(*args, **kwargs)
             except (IndexError, Exception):
                 pass
-        
+
         # Try API key
-        api_key = request.headers.get('X-API-Key')
-        # API key functionality temporarily disabled
-        if api_key:
-            return jsonify({'error': 'API key authentication temporarily disabled'}), 503
-        
+        raw_key = request.headers.get('X-API-Key')
+        if raw_key:
+            api_key_obj = ApiKey.verify(raw_key)
+            if api_key_obj is None:
+                return jsonify({'error': 'Invalid or expired API key'}), 401
+
+            if not check_rate_limit(api_key_obj.user, requests_per_minute=api_key_obj.rate_limit):
+                return jsonify({'error': 'Rate limit exceeded'}), 429
+
+            request.current_user = api_key_obj.user
+            request.current_api_key = api_key_obj
+            return f(*args, **kwargs)
+
         return jsonify({'error': 'Authentication required'}), 401
-    
+
     return decorated
+
+def scope_required(required_scope):
+    """Decorator to require a specific API key scope (use after api_key_required)"""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            api_key_obj = getattr(request, 'current_api_key', None)
+            # JWT users bypass scope checks
+            if api_key_obj is None:
+                return f(*args, **kwargs)
+            if not api_key_obj.has_scope(required_scope):
+                return jsonify({'error': f'API key missing required scope: {required_scope}'}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 
 def admin_required(f):
     """Decorator to require admin role"""
@@ -199,16 +224,49 @@ def role_required(required_roles):
         return decorated
     return decorator
 
+_rate_limit_store = {}  # {key: [timestamp, ...]}
+_rate_limit_prune_counter = 0
+
+
 def check_rate_limit(user, requests_per_minute=60):
-    """Check if user has exceeded rate limit"""
-    if hasattr(request, 'current_api_key'):
-        # Use API key specific limits
-        api_key = request.current_api_key
-        # TODO: Implement rate limiting logic based on API key limits
-        return True
-    
-    # Default rate limiting for JWT users
-    # TODO: Implement rate limiting logic
+    """Check if user has exceeded rate limit using in-memory sliding window.
+
+    Returns True if the request is allowed, False if rate-limited.
+    """
+    global _rate_limit_prune_counter
+    import time
+
+    now = time.time()
+    window = 60  # 1 minute window
+
+    api_key_obj = getattr(request, 'current_api_key', None)
+    if api_key_obj is not None:
+        key = f"apikey:{api_key_obj.id}"
+        limit = api_key_obj.rate_limit or requests_per_minute
+    else:
+        key = f"user:{user.id if hasattr(user, 'id') else user}"
+        limit = requests_per_minute
+
+    # Get or create the timestamp list for this key
+    if key not in _rate_limit_store:
+        _rate_limit_store[key] = []
+
+    # Remove expired timestamps outside the window
+    _rate_limit_store[key] = [ts for ts in _rate_limit_store[key] if ts > now - window]
+
+    # Periodic cleanup: prune stale keys to prevent unbounded memory growth
+    _rate_limit_prune_counter += 1
+    if _rate_limit_prune_counter >= 500:
+        _rate_limit_prune_counter = 0
+        stale = [k for k, v in _rate_limit_store.items()
+                 if not v or v[-1] < now - window * 2]
+        for k in stale:
+            del _rate_limit_store[k]
+
+    if len(_rate_limit_store[key]) >= limit:
+        return False
+
+    _rate_limit_store[key].append(now)
     return True
 
 def log_login_attempt(email, ip_address, user_agent, success):

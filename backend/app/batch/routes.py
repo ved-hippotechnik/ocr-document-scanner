@@ -25,25 +25,60 @@ batch_bp = Blueprint('batch', __name__, url_prefix='/api/batch')
 @ratelimit_batch()
 def submit_batch():
     """
-    Submit a batch processing job
-    
-    Expected JSON:
-    {
-        "documents": [
-            {
-                "id": "doc1",
-                "image": "base64_encoded_image"
-            },
-            {
-                "id": "doc2", 
-                "image": "base64_encoded_image"
-            }
-        ],
-        "config": {
-            "priority": "normal",
-            "notify_on_completion": true
-        }
-    }
+    Submit a batch document processing job.
+    ---
+    tags:
+      - Batch
+    operationId: submitBatch
+    summary: Queue multiple documents for asynchronous OCR
+    description: >
+      Submit up to 100 documents encoded as base64 strings for background
+      processing.  The endpoint returns a `job_id` immediately; poll
+      `GET /api/batch/status/{job_id}` for completion.  Retrieve results
+      with `GET /api/batch/results/{job_id}`.
+
+      **Authentication**: JWT Bearer token required.
+
+      **Rate limit**: 5 requests / minute per authenticated user.
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/BatchSubmitRequest'
+    responses:
+      200:
+        description: Batch job queued — job_id returned.
+        schema:
+          $ref: '#/definitions/BatchSubmitResponse'
+        examples:
+          application/json:
+            success: true
+            job_id: job_2026022210300001
+            message: Batch job submitted successfully with 5 documents
+      400:
+        description: >
+          Validation error — missing documents array, empty array, more than
+          100 documents, or individual document missing id/image fields.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Maximum 100 documents per batch
+      401:
+        description: Missing or invalid JWT Bearer token.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      429:
+        description: Rate limit exceeded.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal server error or job queue failure.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
     """
     try:
         if not request.is_json:

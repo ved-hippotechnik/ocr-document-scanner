@@ -91,7 +91,132 @@ def validate_request(f):
 @measure_performance
 def scan_document_v3():
     """
-    Improved document scanning endpoint with comprehensive validation
+    Scan a single document image (v3 — recommended).
+    ---
+    tags:
+      - Scanning
+    operationId: scanDocumentV3
+    summary: Upload and OCR a document (recommended endpoint)
+    description: >
+      Upload a document image (JPEG, PNG, BMP, TIFF, or PDF) as
+      multipart/form-data.  The engine will validate and sanitise the file,
+      auto-classify the document type using the ML classifier, apply the
+      matching specialist OCR processor, and return structured extracted fields
+      together with the raw OCR text.
+
+      Supported document types: Emirates ID, Aadhaar Card, Indian Driving
+      License, Passport (various countries), US Driver's License.
+
+      **Rate limit**: 10 requests / minute per IP.
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: image
+        type: file
+        required: true
+        description: >
+          Document image file.  Accepted: image/jpeg, image/png, image/bmp,
+          image/tiff, application/pdf.  Maximum size: 16 MB.
+          Minimum dimensions: 100x100 px.
+      - in: formData
+        name: language
+        type: string
+        required: false
+        description: >
+          ISO 639-3 language code for OCR hints (e.g. eng, ara, hin).
+          If omitted the engine auto-detects the language.
+        example: eng
+      - in: formData
+        name: document_type
+        type: string
+        required: false
+        default: auto
+        description: >
+          Force a specific document processor instead of auto-detecting.
+          Pass 'auto' (default) to let the classifier choose.
+        enum:
+          - auto
+          - emirates_id
+          - aadhaar_card
+          - driving_license
+          - passport
+          - us_drivers_license
+      - in: formData
+        name: validate_with_vision
+        type: boolean
+        required: false
+        default: false
+        description: >
+          When true, pass the image through Claude Vision for additional
+          validation and confidence boost.  Requires ANTHROPIC_API_KEY.
+      - in: formData
+        name: quality_check
+        type: boolean
+        required: false
+        default: true
+        description: >
+          Reject images with a quality score below 0.3.  Set to false to
+          process low-quality images anyway.
+      - in: formData
+        name: enhance_image
+        type: boolean
+        required: false
+        default: false
+        description: Apply denoising and sharpening before OCR.
+    responses:
+      200:
+        description: Document scanned and data extracted successfully.
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            document_type:
+              type: string
+              example: Emirates ID
+            data:
+              $ref: '#/definitions/ExtractedInfo'
+            metadata:
+              type: object
+              properties:
+                scan_id:
+                  type: integer
+                  example: 42
+                quality_score:
+                  type: number
+                  example: 0.87
+                processing_time:
+                  type: number
+                  description: Elapsed time in seconds.
+                  example: 1.23
+                timestamp:
+                  type: string
+                  format: date-time
+      400:
+        description: >
+          Bad request — missing file, invalid format, empty file, poor image
+          quality, or unsupported document type.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Missing required file
+            code: FILE_REQUIRED
+            message: No image file provided in request
+      413:
+        description: File exceeds the 16 MB upload limit.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      429:
+        description: Rate limit exceeded.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal OCR processing error.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
     """
     try:
         # Step 1: Validate request has file
@@ -221,7 +346,7 @@ def scan_document_v3():
                 gray = enhance_image(gray)
             
             # Perform OCR
-            initial_text = pytesseract.image_to_string(gray, lang=params.get('language', 'eng'))
+            initial_text = pytesseract.image_to_string(gray, lang=params.get('language', 'eng'), timeout=60)
             
             if not initial_text or len(initial_text.strip()) < 10:
                 return jsonify({
@@ -420,7 +545,42 @@ def validate_extracted_data(data, doc_type):
 @improved.route('/api/v3/health', methods=['GET'])
 @ratelimit_light()
 def health_check_v3():
-    """Enhanced health check endpoint"""
+    """
+    Comprehensive health check (v3).
+    ---
+    tags:
+      - Health
+    operationId: healthCheckV3
+    summary: Detailed component health check
+    description: >
+      Probes each internal subsystem — database, OCR engine, cache, and rate
+      limiter — and aggregates a single top-level status field.
+
+      * **healthy** — all probed components are operational.
+      * **degraded** — one or more components have issues.
+      * **unhealthy** — critical failure; returns HTTP 503.
+
+      **Rate limit**: 60 requests / minute per IP.
+    responses:
+      200:
+        description: Health check completed (inspect `status` field for outcome).
+        schema:
+          $ref: '#/definitions/DetailedHealthResponse'
+        examples:
+          application/json:
+            status: healthy
+            version: "3.0"
+            timestamp: "2026-02-22T10:00:00Z"
+            services:
+              database: healthy
+              ocr_engine: healthy
+              cache: healthy
+              rate_limiter: healthy
+      503:
+        description: One or more critical components are unhealthy.
+        schema:
+          $ref: '#/definitions/DetailedHealthResponse'
+    """
     try:
         health_status = {
             'status': 'healthy',

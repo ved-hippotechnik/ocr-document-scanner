@@ -35,13 +35,27 @@ def init_cache(app: Flask) -> Optional[Any]:
         max_size = app.config.get('CACHE_MAX_SIZE', 1000)
         cache = MemoryCache(max_size=max_size)
         logger.info(f"Memory cache initialized with max size: {max_size}")
-        return cache
-    
+
+    warm_cache()
     return cache
+
+def warm_cache():
+    """Pre-populate cache with rarely-changing data on startup."""
+    if cache is None:
+        return
+
+    try:
+        from ..processors import processor_registry
+        supported = processor_registry.list_supported_documents()
+        cache.set('processors:supported_documents', supported, ttl=86400)
+        logger.info("Cache warmed: %d supported document types cached", len(supported))
+    except Exception as e:
+        logger.warning("Cache warming failed (non-fatal): %s", e)
+
 
 def get_cache():
     """Get the current cache instance"""
     return cache
 
 # Export cache operations
-__all__ = ['init_cache', 'get_cache', 'cache']
+__all__ = ['init_cache', 'get_cache', 'warm_cache', 'cache']

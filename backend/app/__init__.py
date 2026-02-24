@@ -1,5 +1,6 @@
 from flask import Flask
 from flask_cors import CORS
+from datetime import datetime, timezone
 import os
 import logging
 from logging.handlers import RotatingFileHandler
@@ -8,6 +9,16 @@ from .celery_app import make_celery
 
 # Load .env file before app creation
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Swagger / OpenAPI documentation (Flasgger)
+# ---------------------------------------------------------------------------
+try:
+    from flasgger import Swagger
+    from .swagger import SWAGGER_TEMPLATE, SWAGGER_CONFIG
+    _FLASGGER_AVAILABLE = True
+except ImportError:
+    _FLASGGER_AVAILABLE = False
 
 def create_app():
     app = Flask(__name__)
@@ -109,7 +120,22 @@ def create_app():
     from .security.middleware import setup_security_middleware
     setup_security_middleware(app)
     app.logger.info("✅ Security middleware initialized")
-    
+
+    # Request ID tracing middleware
+    import uuid
+    from flask import g, request
+
+    @app.before_request
+    def assign_request_id():
+        g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
+
+    @app.after_request
+    def add_request_id_header(response):
+        request_id = getattr(g, 'request_id', None)
+        if request_id:
+            response.headers['X-Request-ID'] = request_id
+        return response
+
     # Initialize Celery for async tasks
     celery = make_celery(app)
     app.celery = celery
@@ -243,6 +269,7 @@ def create_app():
     from .analytics import analytics_bp
     from .ai import ai_bp
     from .batch import batch_bp
+    from .developer import developer_bp
     
     # Register improved routes with better error handling
     try:
@@ -266,7 +293,54 @@ def create_app():
     app.register_blueprint(analytics_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(batch_bp)
-    
+    app.register_blueprint(developer_bp)
+    app.logger.info("✅ Developer portal registered")
+
+    # API usage tracking for API-key-authenticated requests
+    import time as _time
+    from .database import db as _db, ApiUsageLog as _ApiUsageLog
+
+    @app.before_request
+    def _track_api_start_time():
+        request._api_start_time = _time.time()
+
+    @app.after_request
+    def _track_api_usage(response):
+        api_key_obj = getattr(request, 'current_api_key', None)
+        if api_key_obj is None:
+            return response
+
+        try:
+            elapsed_ms = (_time.time() - getattr(request, '_api_start_time', _time.time())) * 1000
+            today = datetime.now(timezone.utc).date()
+            endpoint = request.path
+
+            row = _ApiUsageLog.query.filter_by(
+                api_key_id=api_key_obj.id, date=today, endpoint=endpoint
+            ).first()
+            if row is None:
+                row = _ApiUsageLog(api_key_id=api_key_obj.id, date=today, endpoint=endpoint)
+                _db.session.add(row)
+
+            row.request_count = (row.request_count or 0) + 1
+            row.total_latency_ms = (row.total_latency_ms or 0) + elapsed_ms
+            if response.status_code >= 400:
+                row.error_count = (row.error_count or 0) + 1
+            _db.session.commit()
+        except Exception as _usage_err:
+            app.logger.debug("Usage tracking failed: %s", _usage_err)
+            _db.session.rollback()
+
+        return response
+
+    # Initialize Flasgger (OpenAPI / Swagger UI at /api/docs)
+    if _FLASGGER_AVAILABLE:
+        try:
+            Swagger(app, template=SWAGGER_TEMPLATE, config=SWAGGER_CONFIG)
+            app.logger.info("Swagger UI available at /api/docs")
+        except Exception as _swagger_err:
+            app.logger.warning(f"Flasgger initialization failed (non-critical): {_swagger_err}")
+
     # Root endpoint - API Documentation
     @app.route('/')
     def api_documentation():
@@ -363,11 +437,56 @@ def create_app():
     # Health check endpoint
     @app.route('/health')
     def health_check():
+        """
+        Basic liveness probe.
+        ---
+        tags:
+          - Health
+        operationId: healthCheck
+        summary: Basic health check
+        description: >
+          Returns a simple JSON payload indicating the service is running.
+          Use this endpoint for load-balancer or container orchestration health checks.
+        responses:
+          200:
+            description: Service is healthy.
+            schema:
+              $ref: '#/definitions/BasicHealthResponse'
+            examples:
+              application/json:
+                status: healthy
+                service: ocr-document-scanner
+        """
         return {'status': 'healthy', 'service': 'ocr-document-scanner'}, 200
-    
+
     # Processors info endpoint
     @app.route('/api/processors')
     def list_processors():
+        """
+        List available document processors.
+        ---
+        tags:
+          - Processors
+        operationId: listProcessors
+        summary: Get supported document types and processor count
+        description: >
+          Returns the list of document types the OCR engine can detect and process,
+          together with the number of active processor modules.
+        responses:
+          200:
+            description: Available processors retrieved successfully.
+            schema:
+              $ref: '#/definitions/ProcessorsResponse'
+            examples:
+              application/json:
+                supported_documents:
+                  - Emirates ID
+                  - Aadhaar Card
+                  - Driving License
+                  - Passport
+                  - US Driver License
+                total_processors: 5
+        """
         from .processors import processor_registry
         return {
             'supported_documents': processor_registry.list_supported_documents(),

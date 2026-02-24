@@ -382,7 +382,7 @@ class DocumentClassifier:
 
             # Run OCR
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            text = pytesseract.image_to_string(gray)
+            text = pytesseract.image_to_string(gray, timeout=60)
 
             # Try to use the processor registry for detection
             try:

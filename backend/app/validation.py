@@ -13,6 +13,13 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+_UTC_SUFFIX = '+00:00'
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace(_UTC_SUFFIX, 'Z')
+
+
 class ValidationError(Exception):
     """Custom validation error"""
     def __init__(self, message: str, code: str = "VALIDATION_ERROR", details: str = None):
@@ -165,8 +172,10 @@ class ErrorHandler:
     @staticmethod
     def handle_error(error: Exception) -> tuple:
         """Handle and format errors for API responses"""
-        timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-        
+        from flask import g
+        timestamp = _utc_timestamp()
+        request_id = getattr(g, 'request_id', None)
+
         if isinstance(error, ValidationError):
             response = {
                 'success': False,
@@ -177,8 +186,8 @@ class ErrorHandler:
                 },
                 'timestamp': timestamp
             }
-            return jsonify(response), 400
-        
+            status_code = 400
+
         elif isinstance(error, ProcessingError):
             response = {
                 'success': False,
@@ -189,8 +198,8 @@ class ErrorHandler:
                 },
                 'timestamp': timestamp
             }
-            return jsonify(response), 422
-        
+            status_code = 422
+
         elif isinstance(error, RequestEntityTooLarge):
             response = {
                 'success': False,
@@ -201,8 +210,8 @@ class ErrorHandler:
                 },
                 'timestamp': timestamp
             }
-            return jsonify(response), 413
-        
+            status_code = 413
+
         elif isinstance(error, BadRequest):
             response = {
                 'success': False,
@@ -213,12 +222,10 @@ class ErrorHandler:
                 },
                 'timestamp': timestamp
             }
-            return jsonify(response), 400
-        
+            status_code = 400
+
         else:
-            # Log unexpected errors
             logger.error(f"Unexpected error: {str(error)}", exc_info=True)
-            
             response = {
                 'success': False,
                 'error': {
@@ -228,51 +235,21 @@ class ErrorHandler:
                 },
                 'timestamp': timestamp
             }
-            return jsonify(response), 500
+            status_code = 500
+
+        if request_id:
+            response['request_id'] = request_id
+        return jsonify(response), status_code
     
     @staticmethod
     def create_success_response(data: Dict[str, Any], status_code: int = 200) -> tuple:
         """Create a standardized success response"""
         response = {
             'success': True,
-            'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+            'timestamp': _utc_timestamp(),
             **data
         }
         return jsonify(response), status_code
-
-class RateLimiter:
-    """Simple in-memory rate limiter"""
-    
-    def __init__(self, max_requests: int = 100, time_window: int = 60):
-        self.max_requests = max_requests
-        self.time_window = time_window
-        self.requests = {}  # IP -> list of timestamps
-    
-    def is_allowed(self, client_ip: str) -> tuple:
-        """Check if request is allowed and return (allowed, remaining, reset_time)"""
-        current_time = datetime.now(timezone.utc).timestamp()
-        
-        if client_ip not in self.requests:
-            self.requests[client_ip] = []
-        
-        # Clean old requests
-        self.requests[client_ip] = [
-            req_time for req_time in self.requests[client_ip]
-            if current_time - req_time < self.time_window
-        ]
-        
-        # Check limit
-        if len(self.requests[client_ip]) >= self.max_requests:
-            oldest_request = min(self.requests[client_ip])
-            reset_time = oldest_request + self.time_window
-            return False, 0, reset_time
-        
-        # Add current request
-        self.requests[client_ip].append(current_time)
-        remaining = self.max_requests - len(self.requests[client_ip])
-        reset_time = current_time + self.time_window
-        
-        return True, remaining, reset_time
 
 def validate_request_json():
     """Decorator to validate JSON request data"""
@@ -312,28 +289,6 @@ def handle_processing_errors():
         return wrapper
     return decorator
 
-# Global rate limiter instance
-rate_limiter = RateLimiter()
-
-def check_rate_limit():
-    """Check rate limit for current request"""
-    client_ip = request.remote_addr or 'unknown'
-    allowed, remaining, reset_time = rate_limiter.is_allowed(client_ip)
-    
-    if not allowed:
-        raise ValidationError(
-            "Rate limit exceeded. Please try again later.",
-            "RATE_LIMIT_EXCEEDED",
-            f"Reset time: {datetime.fromtimestamp(reset_time).isoformat()}"
-        )
-    
-    # Add rate limit headers to response (will be added by Flask after)
-    return {
-        'X-RateLimit-Limit': str(rate_limiter.max_requests),
-        'X-RateLimit-Remaining': str(remaining),
-        'X-RateLimit-Reset': str(int(reset_time))
-    }
-
 def add_security_headers(response):
     """Add security headers to response"""
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -359,26 +314,47 @@ def validate_email(email: str) -> bool:
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(email_pattern, email) is not None
 
-def validate_password(password: str) -> dict:
-    """Validate password strength"""
+COMMON_PASSWORDS = frozenset([
+    'password', 'password1', 'password123', '12345678', '123456789',
+    '1234567890', 'qwerty123', 'abc12345', 'iloveyou', 'admin123',
+    'welcome1', 'monkey123', 'master123', 'dragon123', 'login123',
+    'princess1', 'football1', 'shadow123', 'sunshine1', 'trustno1',
+    'letmein123', 'baseball1', 'michael1', 'charlie1', 'access14',
+    'superman1', 'batman123', 'passw0rd', 'p@ssw0rd', 'p@ssword',
+    'changeme1', 'welcome123', 'qwerty12', 'hello123', 'test1234',
+    'password!', 'pass1234', 'admin1234', 'root1234', 'toor1234',
+    'default1', 'guest1234', 'user1234', 'temp1234', 'secure123',
+    'qwertyui', 'asdfghjk', 'zxcvbnm1', '1q2w3e4r', 'q1w2e3r4',
+])
+
+def validate_password(password: str, username: str = None) -> dict:
+    """Validate password strength including common password check and username similarity."""
     if len(password) < 8:
         return {'valid': False, 'message': 'Password must be at least 8 characters long'}
-    
+
     if len(password) > 128:
         return {'valid': False, 'message': 'Password must be less than 128 characters long'}
-    
+
     if not any(c.isupper() for c in password):
         return {'valid': False, 'message': 'Password must contain at least one uppercase letter'}
-    
+
     if not any(c.islower() for c in password):
         return {'valid': False, 'message': 'Password must contain at least one lowercase letter'}
-    
+
     if not any(c.isdigit() for c in password):
         return {'valid': False, 'message': 'Password must contain at least one number'}
-    
+
     if not any(c in '!@#$%^&*(),.?":{}|<>' for c in password):
         return {'valid': False, 'message': 'Password must contain at least one special character'}
-    
+
+    # Check against common passwords
+    if password.lower() in COMMON_PASSWORDS:
+        return {'valid': False, 'message': 'This password is too common. Please choose a more unique password'}
+
+    # Check if password contains the username
+    if username and len(username) >= 3 and username.lower() in password.lower():
+        return {'valid': False, 'message': 'Password must not contain your username'}
+
     return {'valid': True, 'message': 'Password is valid'}
 
 def sanitize_input(text: str) -> str:
@@ -620,3 +596,38 @@ class InputSanitizer:
             return sanitize_input(data)
         else:
             return data
+
+
+# ---------------------------------------------------------------------------
+# Convenience response helpers
+# ---------------------------------------------------------------------------
+
+def api_response(data: Dict[str, Any], status: int = 200) -> tuple:
+    """Return a standardised JSON success response."""
+    from flask import g
+    body = {
+        'success': True,
+        'timestamp': _utc_timestamp(),
+        **data,
+    }
+    request_id = getattr(g, 'request_id', None)
+    if request_id:
+        body['request_id'] = request_id
+    return jsonify(body), status
+
+
+def api_error(message: str, status: int = 400, code: str = 'ERROR') -> tuple:
+    """Return a standardised JSON error response."""
+    from flask import g
+    body = {
+        'success': False,
+        'error': {
+            'code': code,
+            'message': message,
+        },
+        'timestamp': _utc_timestamp(),
+    }
+    request_id = getattr(g, 'request_id', None)
+    if request_id:
+        body['request_id'] = request_id
+    return jsonify(body), status

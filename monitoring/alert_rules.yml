@@ -1,0 +1,56 @@
+groups:
+  - name: ocr_scanner_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(ocr_scanner_errors_total[5m]) / rate(ocr_scanner_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate (> 5%)"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: HighOCRLatency
+        expr: histogram_quantile(0.95, rate(ocr_processing_duration_seconds_bucket[5m])) > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OCR p95 latency above 60s"
+          description: "95th percentile OCR processing time is {{ $value }}s."
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space below 10%"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining."
+
+      - alert: CeleryQueueBacklog
+        expr: celery_queue_length > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery queue depth exceeds 100"
+          description: "Queue has {{ $value }} pending tasks."
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: sqlalchemy_pool_checkedout >= sqlalchemy_pool_size
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool exhausted"
+          description: "All {{ $value }} connections are checked out."
+
+      - alert: ServiceDown
+        expr: up{job="ocr-scanner"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OCR Scanner service is down"
+          description: "The service has been unreachable for 2 minutes."

@@ -56,6 +56,11 @@ const config = {
     batchCreate: `${API_URL}/api/batch/jobs`,
     batchStatus: `${API_URL}/api/batch/jobs`,
     batchCancel: `${API_URL}/api/batch/jobs`,
+
+    // Developer portal
+    developerKeys: `${API_URL}/api/developer/keys`,
+    developerUsage: `${API_URL}/api/developer/usage`,
+    developerWebhooks: `${API_URL}/api/developer/webhooks`,
   },
   
   // File upload configuration

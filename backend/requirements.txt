@@ -60,3 +60,6 @@ python-magic==0.4.27
 
 # Logging
 pythonjsonlogger==2.0.7
+
+# API Documentation
+flasgger==0.9.7.1

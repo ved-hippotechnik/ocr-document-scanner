@@ -2,23 +2,70 @@
 Authentication routes for user management
 """
 from flask import Blueprint, request, jsonify, current_app
-from datetime import datetime, timedelta, timezone
-import re
-import secrets
+from datetime import datetime, timezone
 from ..database import db, User, LoginAttempt
 from .jwt_utils import (
-    jwt_manager, token_required, admin_required, 
+    jwt_manager, token_required, admin_required,
     log_login_attempt, is_account_locked
 )
-from ..validation import validate_email, validate_password, ProcessingError
-from ..rate_limiter import ratelimit_auth, ratelimit_light
+from ..validation import validate_email, validate_password
+from ..rate_limiter import ratelimit_auth
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 @auth_bp.route('/register', methods=['POST'])
 @ratelimit_auth()
 def register():
-    """Register a new user"""
+    """
+    Register a new user account.
+    ---
+    tags:
+      - Authentication
+    operationId: registerUser
+    summary: Create a new user account
+    description: >
+      Creates a user account and returns a JWT access token plus a refresh
+      token on success.  Passwords must be at least 8 characters and include
+      a mix of uppercase letters, lowercase letters, digits, and at least one
+      special character.
+
+      **Rate limit**: 5 requests / minute per IP.
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/RegisterRequest'
+    responses:
+      201:
+        description: User registered successfully.
+        schema:
+          $ref: '#/definitions/AuthResponse'
+      400:
+        description: >
+          Validation error — missing required fields, invalid email format,
+          or password does not meet strength requirements.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Invalid email format
+      409:
+        description: Email address or username is already in use.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Email already registered
+      429:
+        description: Rate limit exceeded.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal server error.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+    """
     try:
         data = request.get_json()
         
@@ -37,10 +84,10 @@ def register():
             return jsonify({'error': 'Invalid email format'}), 400
         
         # Validate password strength
-        password_validation = validate_password(password)
+        password_validation = validate_password(password, username=username)
         if not password_validation['valid']:
             return jsonify({'error': password_validation['message']}), 400
-        
+
         # Check if user already exists
         if User.query.filter_by(email=email).first():
             return jsonify({'error': 'Email already registered'}), 409
@@ -55,7 +102,6 @@ def register():
             first_name=data.get('first_name', '').strip(),
             last_name=data.get('last_name', '').strip(),
             organization=data.get('organization', '').strip(),
-            # role=UserRole.USER
         )
         user.set_password(password)
         
@@ -81,13 +127,74 @@ def register():
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Registration error: {e}")
+        import traceback
+        current_app.logger.error(f"Registration error: {e}\n{traceback.format_exc()}")
         return jsonify({'error': 'Registration failed'}), 500
 
 @auth_bp.route('/login', methods=['POST'])
 @ratelimit_auth()
 def login():
-    """Authenticate user and return JWT tokens"""
+    """
+    Authenticate a user and receive JWT tokens.
+    ---
+    tags:
+      - Authentication
+    operationId: loginUser
+    summary: Log in and receive JWT access and refresh tokens
+    description: >
+      Validates the provided credentials and returns a short-lived access
+      token (default: 24 h) and a long-lived refresh token (default: 30 days).
+      Include the access token on protected endpoints as:
+
+      ```
+      Authorization: Bearer <access_token>
+      ```
+
+      Accounts are temporarily locked (HTTP 423) after 5 consecutive failed
+      login attempts from the same email address.
+
+      **Rate limit**: 5 requests / minute per IP.
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/LoginRequest'
+    responses:
+      200:
+        description: Login successful — tokens returned.
+        schema:
+          $ref: '#/definitions/AuthResponse'
+      400:
+        description: Email or password field missing from request body.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Email and password are required
+      401:
+        description: Invalid credentials or account deactivated.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Invalid credentials
+      423:
+        description: Account temporarily locked after repeated failed attempts.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: Account temporarily locked due to multiple failed login attempts
+      429:
+        description: Rate limit exceeded.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal server error.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+    """
     try:
         data = request.get_json()
         
@@ -142,12 +249,62 @@ def login():
         }), 200
         
     except Exception as e:
-        current_app.logger.error(f"Login error: {e}")
+        import traceback
+        current_app.logger.error(f"Login error: {e}\n{traceback.format_exc()}")
         return jsonify({'error': 'Login failed'}), 500
 
 @auth_bp.route('/refresh', methods=['POST'])
+@ratelimit_auth()
 def refresh():
-    """Refresh access token using refresh token"""
+    """
+    Exchange a refresh token for a new access token.
+    ---
+    tags:
+      - Authentication
+    operationId: refreshToken
+    summary: Refresh an expired access token
+    description: >
+      Present a valid refresh token to receive a fresh access token without
+      requiring the user to log in again.  The refresh token itself is not
+      rotated by this endpoint.
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - refresh_token
+          properties:
+            refresh_token:
+              type: string
+              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    responses:
+      200:
+        description: New access token issued.
+        schema:
+          type: object
+          properties:
+            access_token:
+              type: string
+              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+            expires_in:
+              type: integer
+              description: Token lifetime in seconds.
+              example: 86400
+      400:
+        description: Refresh token missing from request body.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      401:
+        description: Refresh token is invalid or has expired.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal server error.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+    """
     try:
         data = request.get_json()
         refresh_token = data.get('refresh_token')
@@ -163,13 +320,44 @@ def refresh():
         return jsonify(result), 200
         
     except Exception as e:
-        current_app.logger.error(f"Token refresh error: {e}")
+        import traceback
+        current_app.logger.error(f"Token refresh error: {e}\n{traceback.format_exc()}")
         return jsonify({'error': 'Token refresh failed'}), 500
 
 @auth_bp.route('/profile', methods=['GET'])
 @token_required
 def get_profile():
-    """Get current user profile"""
+    """
+    Retrieve the authenticated user's profile.
+    ---
+    tags:
+      - Authentication
+    operationId: getUserProfile
+    summary: Get current user profile
+    description: >
+      Returns the profile for the user identified by the JWT Bearer token
+      supplied in the Authorization header.
+
+      **Authentication**: JWT Bearer token required.
+    security:
+      - BearerAuth: []
+    responses:
+      200:
+        description: Profile retrieved successfully.
+        schema:
+          type: object
+          properties:
+            user:
+              $ref: '#/definitions/UserObject'
+      401:
+        description: Missing or invalid JWT token.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal server error.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+    """
     try:
         return jsonify({
             'user': request.current_user.to_dict()
@@ -207,6 +395,7 @@ def update_profile():
 
 @auth_bp.route('/change-password', methods=['POST'])
 @token_required
+@ratelimit_auth()
 def change_password():
     """Change user password"""
     try:
@@ -240,178 +429,24 @@ def change_password():
         current_app.logger.error(f"Password change error: {e}")
         return jsonify({'error': 'Password change failed'}), 500
 
-@auth_bp.route('/api-keys', methods=['GET'])
-@token_required
-def get_api_keys():
-    """Get user's API keys"""
-    try:
-        user = request.current_user
-        api_keys = [key.to_dict() for key in user.api_keys if key.is_active]
-        
-        return jsonify({
-            'api_keys': api_keys,
-            'total': len(api_keys)
-        }), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"API keys error: {e}")
-        return jsonify({'error': 'Failed to get API keys'}), 500
-
-@auth_bp.route('/api-keys', methods=['POST'])
-@token_required
-def create_api_key():
-    """Create new API key"""
-    try:
-        data = request.get_json()
-        user = request.current_user
-        
-        name = data.get('name', '').strip()
-        if not name:
-            return jsonify({'error': 'API key name is required'}), 400
-        
-        # Check if user has too many API keys
-        active_keys = len([key for key in user.api_keys if key.is_active])
-        if active_keys >= 10:  # Limit to 10 API keys per user
-            return jsonify({'error': 'Maximum API keys limit reached'}), 400
-        
-        # Generate new API key
-        # ApiKey functionality temporarily disabled
-        return jsonify({'error': 'API key functionality temporarily disabled'}), 503
-        # api_key_value = ApiKey.generate_key()
-        
-        api_key = ApiKey(
-            user_id=user.id,
-            name=name,
-            can_read=data.get('can_read', True),
-            can_write=data.get('can_write', True),
-            can_delete=data.get('can_delete', False),
-            requests_per_minute=data.get('requests_per_minute', 60),
-            requests_per_day=data.get('requests_per_day', 1000),
-            expires_at=None  # No expiration by default
-        )
-        
-        if data.get('expires_in_days'):
-            api_key.expires_at = datetime.now(timezone.utc) + timedelta(days=data['expires_in_days'])
-        
-        api_key.set_key(api_key_value)
-        
-        db.session.add(api_key)
-        db.session.commit()
-        
-        # Return the key value only once
-        result = api_key.to_dict()
-        result['key'] = api_key_value
-        
-        return jsonify({
-            'message': 'API key created successfully',
-            'api_key': result
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"API key creation error: {e}")
-        return jsonify({'error': 'API key creation failed'}), 500
-
+@auth_bp.route('/api-keys', methods=['GET', 'POST'])
 @auth_bp.route('/api-keys/<key_id>', methods=['DELETE'])
 @token_required
-def delete_api_key(key_id):
-    """Delete API key"""
-    try:
-        user = request.current_user
-        api_key = ApiKey.query.filter_by(id=key_id, user_id=user.id).first()
-        
-        if not api_key:
-            return jsonify({'error': 'API key not found'}), 404
-        
-        api_key.is_active = False
-        db.session.commit()
-        
-        return jsonify({'message': 'API key deleted successfully'}), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"API key deletion error: {e}")
-        return jsonify({'error': 'API key deletion failed'}), 500
+def api_keys_stub(key_id=None):
+    """API key management — not yet implemented"""
+    return jsonify({'error': 'API key functionality is not available'}), 503
 
 @auth_bp.route('/forgot-password', methods=['POST'])
+@ratelimit_auth()
 def forgot_password():
-    """Request password reset"""
-    try:
-        data = request.get_json()
-        email = data.get('email', '').lower().strip()
-        
-        if not email:
-            return jsonify({'error': 'Email is required'}), 400
-        
-        user = User.query.filter_by(email=email).first()
-        
-        # Always return success to prevent email enumeration
-        if user and user.is_active:
-            # Generate reset token
-            # Password reset functionality temporarily disabled
-            return jsonify({'error': 'Password reset functionality temporarily disabled'}), 503
-            # token = PasswordReset.generate_token()
-            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-            
-            reset = PasswordReset(
-                user_id=user.id,
-                token=token,
-                expires_at=expires_at
-            )
-            
-            db.session.add(reset)
-            db.session.commit()
-            
-            # TODO: Send email with reset link
-            current_app.logger.info(f"Password reset requested for {email}")
-        
-        return jsonify({
-            'message': 'If the email exists, a password reset link has been sent'
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Password reset request error: {e}")
-        return jsonify({'error': 'Password reset request failed'}), 500
+    """Request password reset — not yet implemented (needs email service)"""
+    return jsonify({'error': 'Password reset functionality is not yet available'}), 503
 
 @auth_bp.route('/reset-password', methods=['POST'])
+@ratelimit_auth()
 def reset_password():
-    """Reset password using token"""
-    try:
-        data = request.get_json()
-        token = data.get('token')
-        new_password = data.get('new_password')
-        
-        if not token or not new_password:
-            return jsonify({'error': 'Token and new password are required'}), 400
-        
-        # Find valid reset token
-        reset = PasswordReset.query.filter_by(token=token).first()
-        
-        if not reset or not reset.is_valid():
-            return jsonify({'error': 'Invalid or expired reset token'}), 400
-        
-        # Validate new password
-        password_validation = validate_password(new_password)
-        if not password_validation['valid']:
-            return jsonify({'error': password_validation['message']}), 400
-        
-        # Update password
-        user = reset.user
-        user.set_password(new_password)
-        user.updated_at = datetime.now(timezone.utc)
-        
-        # Mark token as used
-        reset.mark_as_used()
-        
-        db.session.commit()
-        
-        return jsonify({'message': 'Password reset successfully'}), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Password reset error: {e}")
-        return jsonify({'error': 'Password reset failed'}), 500
+    """Reset password using token — not yet implemented"""
+    return jsonify({'error': 'Password reset functionality is not yet available'}), 503
 
 # Admin routes
 @auth_bp.route('/admin/users', methods=['GET'])

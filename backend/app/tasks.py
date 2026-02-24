@@ -6,7 +6,7 @@ import os
 import json
 import base64
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from celery import current_task, group, chain
 from celery.exceptions import SoftTimeLimitExceeded
@@ -66,8 +66,9 @@ def init_task_services(app):
     )
 
 
-@task_decorator(bind=True, name='app.tasks.process_document_async')
-def process_document_async(self, scan_id: int, image_data: str, 
+@task_decorator(bind=True, name='app.tasks.process_document_async',
+                max_retries=2, default_retry_delay=5)
+def process_document_async(self, scan_id: int, image_data: str,
                           document_type: Optional[str] = None) -> Dict[str, Any]:
     """
     Asynchronously process a document with OCR
@@ -91,7 +92,7 @@ def process_document_async(self, scan_id: int, image_data: str,
         
         # Update scan status
         scan.status = 'processing'
-        scan.started_at = datetime.utcnow()
+        scan.started_at = datetime.now(timezone.utc)
         db.session.commit()
         
         # Decode image
@@ -145,7 +146,7 @@ def process_document_async(self, scan_id: int, image_data: str,
         scan.extracted_data = json.dumps(ocr_result['data'])
         scan.validation_status = 'valid' if validation_result['is_valid'] else 'invalid'
         scan.validation_errors = json.dumps(validation_result.get('errors', []))
-        scan.completed_at = datetime.utcnow()
+        scan.completed_at = datetime.now(timezone.utc)
         scan.status = 'completed'
         scan.processing_time = (scan.completed_at - scan.started_at).total_seconds()
         
@@ -180,13 +181,32 @@ def process_document_async(self, scan_id: int, image_data: str,
             scan.error_message = "Processing timeout exceeded"
             db.session.commit()
         raise
-        
-    except Exception as e:
-        logger.error(f"Error processing scan {scan_id}: {str(e)}")
+
+    except RuntimeError as e:
+        # Tesseract timeout — retryable
+        import traceback as _tb
+        tb = _tb.format_exc()
+        logger.warning("OCR timeout for scan %s, attempt %d: %s",
+                        scan_id, self.request.retries + 1, e)
+        if scan:
+            scan.error_message = f"{e}\n---TRACEBACK---\n{tb}"[:4000]
+            db.session.commit()
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=5 * (self.request.retries + 1))
         if scan:
             scan.status = 'failed'
-            scan.error_message = str(e)
-            scan.completed_at = datetime.utcnow()
+            scan.completed_at = datetime.now(timezone.utc)
+            db.session.commit()
+        raise
+
+    except Exception as e:
+        import traceback as _tb
+        tb = _tb.format_exc()
+        logger.error("Error processing scan %s: %s\n%s", scan_id, e, tb)
+        if scan:
+            scan.status = 'failed'
+            scan.error_message = f"{e}\n---TRACEBACK---\n{tb}"[:4000]
+            scan.completed_at = datetime.now(timezone.utc)
             db.session.commit()
         raise
 
@@ -210,7 +230,7 @@ def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[s
             raise ValueError(f"Batch job {job_id} not found")
         
         job.status = 'processing'
-        job.started_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
         db.session.commit()
         
         # Create individual scan records
@@ -244,7 +264,7 @@ def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[s
         successful = sum(1 for r in results if r.get('success', False))
         failed = len(results) - successful
         
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
         job.successful_count = successful
         job.failed_count = failed
         job.status = 'completed'
@@ -266,7 +286,7 @@ def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[s
         if job:
             job.status = 'failed'
             job.error_message = str(e)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             db.session.commit()
         raise
 
@@ -289,7 +309,7 @@ def generate_analytics_async(user_id: Optional[int] = None,
         dashboard = AnalyticsDashboard()
         
         # Calculate date range
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
         
         # Generate comprehensive analytics
@@ -307,7 +327,7 @@ def generate_analytics_async(user_id: Optional[int] = None,
         }
         
         # Store report
-        report_filename = f"analytics_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        report_filename = f"analytics_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
         filesystem_mcp.write_file(
             f"reports/{report_filename}",
             json.dumps(analytics_data, indent=2),
@@ -341,7 +361,7 @@ def cleanup_old_files_async(days_to_keep: int = 30) -> Dict[str, Any]:
         Cleanup summary
     """
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
         
         # Clean up database records
         old_scans = ScanHistory.query.filter(
@@ -465,6 +485,25 @@ def process_with_mcp_thinking(self, document_id: int, requirements: Dict[str, An
         raise
 
 
+@task_decorator(bind=True, name='app.tasks.deliver_webhook',
+                max_retries=3, default_retry_delay=10)
+def deliver_webhook(self, delivery_id: int) -> Dict[str, Any]:
+    """Deliver a webhook notification with automatic retry."""
+    from .webhooks import _deliver, RETRY_DELAYS
+    from .database import WebhookDelivery as WD
+
+    success = _deliver(delivery_id)
+    if success:
+        return {'delivery_id': delivery_id, 'status': 'delivered'}
+
+    delivery = WD.query.get(delivery_id)
+    if delivery and delivery.attempts < delivery.max_attempts:
+        delay_idx = min(delivery.attempts - 1, len(RETRY_DELAYS) - 1)
+        raise self.retry(countdown=RETRY_DELAYS[delay_idx])
+
+    return {'delivery_id': delivery_id, 'status': 'failed'}
+
+
 # Periodic tasks
 @task_decorator(name='app.tasks.periodic_cleanup')
 def periodic_cleanup():
@@ -478,6 +517,50 @@ def periodic_analytics():
     return generate_analytics_async.delay(days=1)
 
 
+@task_decorator(name='app.tasks.cleanup_stale_uploads')
+def cleanup_stale_uploads(max_age_hours: int = 24) -> Dict[str, Any]:
+    """Remove upload files older than *max_age_hours* that are no longer referenced."""
+    import glob
+    import time
+
+    upload_folder = os.environ.get('UPLOAD_FOLDER', 'uploads')
+    cutoff = time.time() - (max_age_hours * 3600)
+    removed = 0
+    for path in glob.glob(os.path.join(upload_folder, '*')):
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass
+    logger.info(f"Stale upload cleanup: removed {removed} files")
+    return {'removed': removed}
+
+
+@task_decorator(name='app.tasks.cleanup_expired_tokens')
+def cleanup_expired_tokens() -> Dict[str, Any]:
+    """Delete expired login attempt records older than 90 days."""
+    from .database import LoginAttempt
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    deleted = LoginAttempt.query.filter(LoginAttempt.attempted_at < cutoff).delete()
+    db.session.commit()
+    logger.info(f"Expired token cleanup: removed {deleted} old login attempts")
+    return {'deleted': deleted}
+
+
+@task_decorator(name='app.tasks.db_maintenance')
+def db_maintenance() -> Dict[str, Any]:
+    """Run lightweight DB maintenance (ANALYZE on SQLite, ANALYZE on PostgreSQL)."""
+    try:
+        db.session.execute(db.text('ANALYZE'))
+        db.session.commit()
+        logger.info("Database ANALYZE completed")
+        return {'status': 'ok'}
+    except Exception as e:
+        logger.warning(f"DB maintenance failed: {e}")
+        return {'status': 'error', 'detail': str(e)}
+
+
 # Task monitoring
 @task_decorator(name='app.tasks.monitor_task_health')
 def monitor_task_health() -> Dict[str, Any]:
@@ -487,14 +570,23 @@ def monitor_task_health() -> Dict[str, Any]:
     inspect = current_app.control.inspect()
     
     stats = {
-        'active_tasks': len(inspect.active() or {}),
-        'scheduled_tasks': len(inspect.scheduled() or {}),
-        'reserved_tasks': len(inspect.reserved() or {}),
+        'active_tasks': sum(len(v) for v in (inspect.active() or {}).values()),
+        'scheduled_tasks': sum(len(v) for v in (inspect.scheduled() or {}).values()),
+        'reserved_tasks': sum(len(v) for v in (inspect.reserved() or {}).values()),
         'workers': list((inspect.active_queues() or {}).keys()),
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
-    
+
+    # Export to Prometheus gauges
+    try:
+        from .monitoring import celery_queue_depth
+        celery_queue_depth.labels(queue_name='active').set(stats['active_tasks'])
+        celery_queue_depth.labels(queue_name='scheduled').set(stats['scheduled_tasks'])
+        celery_queue_depth.labels(queue_name='reserved').set(stats['reserved_tasks'])
+    except Exception:
+        pass
+
     # Store in cache for monitoring
     get_cache().set('celery_health', stats, ttl=60)
-    
+
     return stats

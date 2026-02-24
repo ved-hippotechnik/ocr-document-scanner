@@ -1,13 +1,29 @@
 version: '3.8'
 
 services:
+  # Nginx API Gateway — single public entry point
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      ocr-scanner:
+        condition: service_healthy
+    networks:
+      - ocr-network
+    restart: unless-stopped
+
   # Main Enhanced OCR Application
   ocr-scanner:
     build:
       context: .
       target: production
-    ports:
-      - "5000:5000"
+    expose:
+      - "5000"
     environment:
       - FLASK_ENV=production
       - TESSERACT_CMD=/usr/bin/tesseract
@@ -39,7 +55,7 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # PostgreSQL Database
+  # PostgreSQL Database (internal only — not exposed to host)
   postgres:
     image: postgres:15-alpine
     environment:
@@ -48,8 +64,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - ocr-network
     healthcheck:
@@ -59,14 +73,12 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Redis Cache
+  # Redis Cache (internal only — not exposed to host)
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     networks:
       - ocr-network
     healthcheck:
@@ -137,6 +149,35 @@ services:
     depends_on:
       - redis
       - celery-worker
+    networks:
+      - ocr-network
+    restart: unless-stopped
+
+  # Database backup (daily pg_dump, 30-day retention)
+  db-backup:
+    image: postgres:15-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATABASE: ${POSTGRES_DB:-ocr_scanner}
+      BACKUP_RETENTION_DAYS: 30
+    volumes:
+      - ./backups:/backups
+    entrypoint: >
+      sh -c "
+        while true; do
+          STAMP=$$(date +%Y%m%d_%H%M%S);
+          pg_dump -Fc > /backups/ocr_scanner_$$STAMP.dump &&
+          echo \"Backup created: ocr_scanner_$$STAMP.dump\" ||
+          echo \"Backup FAILED at $$STAMP\";
+          find /backups -name '*.dump' -mtime +$${BACKUP_RETENTION_DAYS:-30} -delete;
+          sleep 86400;
+        done
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - ocr-network
     restart: unless-stopped

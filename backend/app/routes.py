@@ -13,6 +13,9 @@ from passporteye import read_mrz
 from .processors.registry import processor_registry
 from .rate_limiter import ratelimit_scan, ratelimit_medium, ratelimit_light
 from .language_detector import get_languages_info, validate_language, detect_language
+import logging
+
+logger = logging.getLogger(__name__)
 
 main = Blueprint('main', __name__)
 
@@ -790,6 +793,68 @@ def validate_uploaded_file(file):
 @main.route('/api/scan', methods=['POST'])
 @ratelimit_scan()
 def scan_document():
+    """
+    Scan a single document image (v1 legacy).
+    ---
+    tags:
+      - Scanning
+    operationId: scanDocumentV1
+    summary: Upload and OCR a document (legacy endpoint)
+    description: >
+      Original scanning endpoint.  Accepts a document image via
+      multipart/form-data and returns structured extracted fields.
+      For new integrations prefer `POST /api/v3/scan` which includes
+      stricter file validation and richer error codes.
+
+      Supports Emirates ID, Aadhaar Card, Indian Driving License, Passports,
+      and US Driver's License.  PDF files are processed page-by-page.
+
+      **Rate limit**: 10 requests / minute per IP.
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: image
+        type: file
+        required: true
+        description: >
+          Document image file (JPEG, PNG, BMP, TIFF) or PDF.
+          Maximum size: 16 MB.
+      - in: formData
+        name: language
+        type: string
+        required: false
+        description: >
+          ISO 639-3 OCR language hint (e.g. eng, ara, hin).
+          Auto-detected when omitted.
+        example: eng
+      - in: formData
+        name: validate_with_vision
+        type: boolean
+        required: false
+        default: false
+        description: Enable Claude Vision secondary validation pass.
+    responses:
+      200:
+        description: Document scanned successfully.
+        schema:
+          $ref: '#/definitions/ScanResponse'
+      400:
+        description: Missing file, empty file, or unsupported format.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+        examples:
+          application/json:
+            error: No image file provided
+      429:
+        description: Rate limit exceeded.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+      500:
+        description: Internal OCR processing error.
+        schema:
+          $ref: '#/definitions/ErrorResponse'
+    """
     # Validate file upload
     if 'image' not in request.files:
         return jsonify({'error': 'No image file provided'}), 400
@@ -851,21 +916,21 @@ def scan_document():
 
     # Initial OCR scan to detect document type
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    initial_text = pytesseract.image_to_string(gray)
+    initial_text = pytesseract.image_to_string(gray, timeout=60)
 
-    print(f"DEBUG: Initial OCR text preview: {initial_text[:200]}...")
+    logger.debug(f"Initial OCR text preview: {initial_text[:200]}...")
 
     # Auto-detect language if not explicitly provided
     if not language:
         language = detect_language(initial_text)
         if language != 'eng':
-            print(f"DEBUG: Auto-detected language: {language}")
+            logger.debug(f"Auto-detected language: {language}")
 
     # Use processor registry to detect document type and get appropriate processor
     doc_display_name, processor = processor_registry.detect_document_type(initial_text, img)
 
     if processor:
-        print(f"DEBUG: Detected document type: {doc_display_name} using {processor.__class__.__name__}")
+        logger.debug(f"Detected document type: {doc_display_name} using {processor.__class__.__name__}")
 
         # Use the specific processor to extract information
         doc_info = processor.process(img, language=language, validate_with_vision=validate_with_vision)
@@ -886,7 +951,7 @@ def scan_document():
             doc_type = 'other'
             
     else:
-        print("DEBUG: No specific processor found, using fallback processing")
+        logger.debug("No specific processor found, using fallback processing")
         
         # Fallback to original processing method
         # Preprocess the image
@@ -904,7 +969,7 @@ def scan_document():
                                       cv2.THRESH_BINARY, 11, 2)
         
         # OCR with pytesseract
-        text = pytesseract.image_to_string(binary)
+        text = pytesseract.image_to_string(binary, timeout=60)
         
         # Try to extract MRZ data
         mrz_data = None
@@ -922,7 +987,7 @@ def scan_document():
             if mrz:
                 mrz_data = mrz.to_dict()
         except Exception as e:
-            print(f"MRZ extraction error: {e}")
+            logger.warning(f"MRZ extraction error: {e}")
         
         # Detect document type using legacy method
         doc_type = detect_document_type(text, mrz_data)
@@ -1032,6 +1097,39 @@ def scan_document():
 @main.route('/api/stats', methods=['GET'])
 @ratelimit_light()
 def get_stats():
+    """
+    Get in-memory processing statistics.
+    ---
+    tags:
+      - Statistics
+    operationId: getStats
+    summary: Scan counters for the current server process
+    description: >
+      Returns running totals since the server started: total documents scanned,
+      breakdown by document type, breakdown by detected nationality, and the
+      raw scan history list.  These counters reset when the server restarts.
+      Use `GET /api/analytics/dashboard` for persisted analytics.
+
+      **Rate limit**: 60 requests / minute per IP.
+    responses:
+      200:
+        description: Statistics retrieved successfully.
+        schema:
+          $ref: '#/definitions/StatsResponse'
+        examples:
+          application/json:
+            total_scanned: 42
+            document_types:
+              passport: 10
+              id_card: 20
+              driving_license: 8
+              aadhaar: 3
+              other: 1
+            nationalities:
+              UAE: 15
+              IND: 18
+              USA: 9
+    """
     return jsonify(document_stats)
 
 @main.route('/api/documents', methods=['GET'])
@@ -1190,23 +1288,23 @@ def extract_text_emirates_id(processed_images):
         for config in configs:
             try:
                 # Try English + Arabic
-                text_mixed = pytesseract.image_to_string(img, config=config, lang='eng+ara')
+                text_mixed = pytesseract.image_to_string(img, config=config, lang='eng+ara', timeout=60)
                 if text_mixed.strip():
                     all_text.append(text_mixed)
-                
+
                 # Try English only
-                text_eng = pytesseract.image_to_string(img, config=config, lang='eng')
+                text_eng = pytesseract.image_to_string(img, config=config, lang='eng', timeout=60)
                 if text_eng.strip():
                     all_text.append(text_eng)
-                    
+
                 # Try Arabic only
-                text_ara = pytesseract.image_to_string(img, config=config, lang='ara')
+                text_ara = pytesseract.image_to_string(img, config=config, lang='ara', timeout=60)
                 if text_ara.strip():
                     all_text.append(text_ara)
-                    
+
             except Exception as e:
                 continue
-    
+
     return all_text
 
 def enhanced_emirates_id_extraction(text_list):
@@ -1408,12 +1506,12 @@ def extract_text_driving_license(processed_images):
         for config in configs:
             try:
                 # Try English
-                text_eng = pytesseract.image_to_string(img, config=config, lang='eng')
+                text_eng = pytesseract.image_to_string(img, config=config, lang='eng', timeout=60)
                 if text_eng.strip():
                     all_text.append(text_eng)
-                    
+
                 # Try Arabic for UAE licenses
-                text_ara = pytesseract.image_to_string(img, config=config, lang='ara')
+                text_ara = pytesseract.image_to_string(img, config=config, lang='ara', timeout=60)
                 if text_ara.strip():
                     all_text.append(text_ara)
                     
@@ -1726,11 +1824,11 @@ def extract_text_aadhaar_card(processed_images):
     for img in processed_images:
         for config in configs:
             try:
-                text = pytesseract.image_to_string(img, config=config)
+                text = pytesseract.image_to_string(img, config=config, timeout=60)
                 if text.strip():
                     text_results.append(text.strip())
             except Exception as e:
-                print(f"OCR error with config {config}: {e}")
+                logger.warning(f"OCR error with config {config}: {e}")
                 continue
     
     return text_results

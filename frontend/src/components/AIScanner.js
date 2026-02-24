@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { API_URL } from '../config';
-import { validateFile, showValidationError, clearValidationError } from '../utils/validation';
+import { validateFile } from '../utils/validation';
+import useFileValidation from '../hooks/useFileValidation';
+import { fileToBase64 } from '../hooks/useDocumentScanning';
 import { connectSession } from '../utils/websocket';
 import {
   Box,
@@ -50,6 +52,7 @@ import { useDropzone } from 'react-dropzone';
 import { toast } from 'react-toastify';
 
 const AIScanner = () => {
+  const { validate: validateSingleFile } = useFileValidation();
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
   const [progress, setProgress] = useState(0);
@@ -64,20 +67,25 @@ const AIScanner = () => {
   const wsCleanupRef = useRef(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
     // Fetch available languages
-    fetch(`${API_URL}/api/languages`)
+    fetch(`${API_URL}/api/languages`, { signal })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
           setAvailableLanguages(data.languages);
         }
       })
-      .catch(() => {
-        setAvailableLanguages([{ code: 'eng', name: 'English' }]);
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          setAvailableLanguages([{ code: 'eng', name: 'English' }]);
+        }
       });
 
     // Check if Vision service is available
-    fetch(`${API_URL}/api/ai/model/status`)
+    fetch(`${API_URL}/api/ai/model/status`, { signal })
       .then(res => res.json())
       .then(data => {
         if (data.success && data.vision_available) {
@@ -85,21 +93,17 @@ const AIScanner = () => {
         }
       })
       .catch(() => {});
+
+    return () => controller.abort();
   }, []);
 
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) {
       const file = acceptedFiles[0];
-      const validation = validateFile(file);
-      
-      if (!validation.isValid) {
-        toast.error(validation.error);
-        return;
-      }
-      
+      if (!validateSingleFile(file).isValid) return;
       processDocument(file);
     }
-  }, []);
+  }, [validateSingleFile]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -147,35 +151,49 @@ const AIScanner = () => {
         formData.append('validate_with_vision', 'true');
       }
       
-      // Call AI-enhanced scan endpoint
-      const response = await fetch(`${API_URL}/api/v3/scan`, {
-        method: 'POST',
-        headers: {
-          'X-Session-ID': sessionId
-        },
-        body: formData
-      });
+      // Call AI-enhanced scan endpoint with timeout
+      const scanController = new AbortController();
+      const scanTimeoutId = setTimeout(() => scanController.abort(), 120000);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      try {
+        const response = await fetch(`${API_URL}/api/v3/scan`, {
+          method: 'POST',
+          headers: {
+            'X-Session-ID': sessionId
+          },
+          body: formData,
+          signal: scanController.signal
+        });
+        clearTimeout(scanTimeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+          setResults(data.ocr_result);
+          setClassification(data.classification);
+          setQualityAssessment(data.quality_assessment);
+          setRecommendations(data.recommendations || []);
+
+          toast.success('Document processed successfully!');
+        } else {
+          throw new Error(data.error || 'Processing failed');
+        }
+      } catch (innerError) {
+        clearTimeout(scanTimeoutId);
+        throw innerError;
       }
 
-      const data = await response.json();
-      
-      if (data.success) {
-        setResults(data.ocr_result);
-        setClassification(data.classification);
-        setQualityAssessment(data.quality_assessment);
-        setRecommendations(data.recommendations || []);
-        
-        toast.success('Document processed successfully!');
-      } else {
-        throw new Error(data.error || 'Processing failed');
-      }
-      
     } catch (error) {
       console.error('Processing error:', error);
-      toast.error(`Processing failed: ${error.message}`);
+      if (error.name === 'AbortError') {
+        toast.error('Document processing timed out. Please try again with a smaller file.');
+      } else {
+        toast.error(`Processing failed: ${error.message}`);
+      }
     } finally {
       setIsProcessing(false);
       setProgress(100);
@@ -220,15 +238,6 @@ const AIScanner = () => {
       }
     };
   }, []);
-
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  };
 
   const getConfidenceColor = (confidence) => {
     if (confidence >= 0.8) return 'success';

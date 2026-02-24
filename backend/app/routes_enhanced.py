@@ -87,19 +87,33 @@ def enhanced_scan(validated_data):
     
     # Check rate limit
     rate_limit_headers = check_rate_limit()
-    
+
     try:
+        # Idempotency-Key: return cached result for duplicate requests
+        idempotency_key = request.headers.get('Idempotency-Key')
+        if idempotency_key:
+            idem_cache_key = f"idempotency:{idempotency_key}"
+            cached = cache.get(idem_cache_key) if cache else None
+            if cached:
+                logger.info(f"Idempotency cache hit: {idempotency_key}")
+                response_data = ErrorHandler.create_success_response(cached)
+                response = response_data[0]
+                response.headers['X-Idempotency-Replayed'] = 'true'
+                for header, value in rate_limit_headers.items():
+                    response.headers[header] = value
+                return response
+
         # Extract validated data
         image = validated_data['image']
         document_type = validated_data.get('document_type')
         options = validated_data.get('options', {})
-        
+
         # Generate session ID for tracking
         session_id = request.headers.get('X-Session-ID', str(uuid.uuid4()))
-        
+
         # Notify processing start
         notify_processing_start(session_id, document_type)
-        
+
         # Generate image hash for caching
         import hashlib
         image_bytes = io.BytesIO()
@@ -157,7 +171,7 @@ def enhanced_scan(validated_data):
         # Run OCR to get text for rule-based classification
         import pytesseract
         gray_for_classify = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
-        ocr_text = pytesseract.image_to_string(gray_for_classify)
+        ocr_text = pytesseract.image_to_string(gray_for_classify, timeout=60)
 
         classification_results = document_classifier.classify_document(ocr_text, image_array)
         # Convert list of ClassificationResult to dict format
@@ -275,18 +289,25 @@ def enhanced_scan(validated_data):
         
         # Add cached flag
         result['cached'] = False
-        
+
+        # Store under idempotency key (24h TTL) so retries get the same response
+        if idempotency_key and cache:
+            try:
+                cache.set(f"idempotency:{idempotency_key}", result, ttl=86400)
+            except Exception:
+                pass
+
         # Notify processing complete
         notify_processing_complete(session_id, result)
-        
+
         # Return success response with rate limit headers
         response_data = ErrorHandler.create_success_response(result)
         response = response_data[0]
-        
+
         # Add rate limit headers
         for header, value in rate_limit_headers.items():
             response.headers[header] = value
-            
+
         return response
         
     except Exception as e:
@@ -323,7 +344,7 @@ def classify_document_endpoint(validated_data):
         # Classify document
         import pytesseract as _pytesseract
         _gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
-        _ocr_text = _pytesseract.image_to_string(_gray)
+        _ocr_text = _pytesseract.image_to_string(_gray, timeout=60)
         _cls_results = document_classifier.classify_document(_ocr_text, image_array)
         if _cls_results and len(_cls_results) > 0:
             _best = _cls_results[0]
@@ -474,6 +495,75 @@ def health_check():
         }), 503
 
 
+@enhanced.route('/api/v3/health', methods=['GET'])
+def comprehensive_health_check():
+    """Comprehensive health check verifying all dependencies."""
+    import shutil
+    import subprocess
+
+    checks = {}
+
+    # Database
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        checks['database'] = {'status': 'ok'}
+    except Exception as e:
+        checks['database'] = {'status': 'error', 'detail': str(e)}
+
+    # Redis
+    try:
+        redis_url = current_app.config.get('REDIS_URL') or os.environ.get('REDIS_URL')
+        if redis_url:
+            import redis as _redis
+            r = _redis.from_url(redis_url, socket_connect_timeout=2)
+            r.ping()
+            checks['redis'] = {'status': 'ok'}
+        else:
+            checks['redis'] = {'status': 'skipped', 'detail': 'no REDIS_URL configured'}
+    except Exception as e:
+        checks['redis'] = {'status': 'error', 'detail': str(e)}
+
+    # Tesseract OCR
+    try:
+        result = subprocess.run(
+            ['tesseract', '--version'], capture_output=True, text=True, timeout=5
+        )
+        version = result.stdout.split('\n')[0] if result.stdout else 'unknown'
+        checks['tesseract'] = {'status': 'ok', 'version': version}
+    except Exception as e:
+        checks['tesseract'] = {'status': 'error', 'detail': str(e)}
+
+    # Disk space
+    try:
+        usage = shutil.disk_usage('/')
+        free_pct = (usage.free / usage.total) * 100
+        checks['disk'] = {
+            'status': 'ok' if free_pct > 10 else 'warning',
+            'free_percent': round(free_pct, 1),
+        }
+    except Exception as e:
+        checks['disk'] = {'status': 'error', 'detail': str(e)}
+
+    # Processors
+    checks['processors'] = {
+        'status': 'ok' if len(processor_registry.processors) > 0 else 'error',
+        'count': len(processor_registry.processors),
+    }
+
+    overall = 'healthy'
+    if any(c.get('status') == 'error' for c in checks.values()):
+        overall = 'unhealthy'
+    elif any(c.get('status') == 'warning' for c in checks.values()):
+        overall = 'degraded'
+
+    status_code = 200 if overall == 'healthy' else 503
+    return jsonify({
+        'status': overall,
+        'version': '3.0.0',
+        'checks': checks,
+    }), status_code
+
+
 @enhanced.route('/analytics', methods=['GET'])
 def get_analytics():
     """Get analytics data for the dashboard"""
@@ -551,7 +641,7 @@ def check_ocr_engine() -> bool:
         cv2.putText(test_image, 'TEST', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
         
         # Try OCR
-        result = pytesseract.image_to_string(test_image)
+        result = pytesseract.image_to_string(test_image, timeout=5)
         return 'TEST' in result.upper()
     except Exception:
         return False

@@ -3,7 +3,10 @@
 # Base stage with common dependencies
 FROM python:3.10-slim AS base
 
-# Install system dependencies
+# Configurable Tesseract language packs (comma-separated, e.g. "eng,ara,hin")
+ARG TESSERACT_LANGUAGES=eng,ara,hin,fra,deu,spa,por,rus,jpn,kor,chi-sim,chi-tra
+
+# Install system dependencies + requested Tesseract packs
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -15,18 +18,13 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     tesseract-ocr \
-    tesseract-ocr-ara \
-    tesseract-ocr-chi-sim \
-    tesseract-ocr-chi-tra \
-    tesseract-ocr-deu \
-    tesseract-ocr-fra \
-    tesseract-ocr-hin \
-    tesseract-ocr-jpn \
-    tesseract-ocr-kor \
-    tesseract-ocr-por \
-    tesseract-ocr-rus \
-    tesseract-ocr-spa \
+    && for lang in $(echo "$TESSERACT_LANGUAGES" | tr ',' ' '); do \
+         apt-get install -y "tesseract-ocr-${lang}" || echo "Warning: tesseract-ocr-${lang} not found"; \
+       done \
     && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r ocr && useradd -r -g ocr -u 1000 -m ocr
 
 # Create app directory
 WORKDIR /app
@@ -42,8 +40,12 @@ FROM base AS backend-builder
 COPY backend/ /app/backend/
 COPY *.py /app/
 
-# Create necessary directories
-RUN mkdir -p /app/uploads /app/logs /app/models /app/analytics_charts
+# Create necessary directories and set ownership
+RUN mkdir -p /app/uploads /app/logs /app/models /app/analytics_charts && \
+    chown -R ocr:ocr /app
+
+# Switch to non-root user
+USER ocr
 
 # Set environment variables
 ENV PYTHONPATH=/app \

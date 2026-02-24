@@ -54,12 +54,10 @@ frontend/build/
 frontend/.cache/
 frontend/node_modules/.cache/
 
-# Environment Variables
+# Environment Variables — only .env.example files are committed
 .env
 .env.*
 !.env.example
-!.env.template
-!.env.production.template
 
 # Logs
 logs/

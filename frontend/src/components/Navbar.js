@@ -11,6 +11,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import SmartToy from '@mui/icons-material/SmartToy';
 import BatchPrediction from '@mui/icons-material/BatchPrediction';
 import Analytics from '@mui/icons-material/Analytics';
+import CodeIcon from '@mui/icons-material/Code';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
 import useScrollTrigger from '@mui/material/useScrollTrigger';
@@ -77,9 +78,10 @@ const Navbar = () => {
   }, [scrolled]);
 
   return (
+    <>
     <HideOnScroll>
-      <AppBar 
-        position="sticky" 
+      <AppBar
+        position="sticky"
         elevation={0}
         className="apple-navbar"
         sx={{
@@ -92,11 +94,12 @@ const Navbar = () => {
       >
         <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <IconButton 
-              edge="start" 
-              component={RouterLink} 
+            <IconButton
+              edge="start"
+              component={RouterLink}
               to="/"
-              sx={{ 
+              aria-label="Go to home"
+              sx={{
                 color: '#007AFF',
                 mr: 1.5,
                 p: { xs: 1, sm: 1.5 },
@@ -170,6 +173,15 @@ const Navbar = () => {
             </AppleNavButton>
             <AppleNavButton
               component={RouterLink}
+              to="/developer"
+              active={location.pathname.startsWith('/developer') ? 1 : 0}
+              startIcon={<CodeIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
+            >
+              Developer
+            </AppleNavButton>
+            <AppleNavButton
+              component={RouterLink}
               to="/admin"
               active={location.pathname === '/admin' ? 1 : 0}
               startIcon={<DashboardIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
@@ -184,13 +196,15 @@ const Navbar = () => {
             sx={{ display: { xs: 'block', md: 'none' } }}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             color="inherit"
-            aria-label="Open navigation menu"
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <CloseIcon /> : <MenuIcon />}
           </IconButton>
         </Toolbar>
       </AppBar>
-      
+    </HideOnScroll>
+
       {/* Mobile Drawer */}
       <Drawer
         anchor="right"
@@ -283,6 +297,19 @@ const Navbar = () => {
             <ListItem disablePadding>
               <ListItemButton
                 component={RouterLink}
+                to="/developer"
+                selected={location.pathname.startsWith('/developer')}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ListItemIcon>
+                  <CodeIcon color={location.pathname.startsWith('/developer') ? 'primary' : 'inherit'} />
+                </ListItemIcon>
+                <ListItemText primary="Developer" />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                component={RouterLink}
                 to="/admin"
                 selected={location.pathname === '/admin'}
                 onClick={() => setMobileMenuOpen(false)}
@@ -296,7 +323,7 @@ const Navbar = () => {
           </List>
         </Box>
       </Drawer>
-    </HideOnScroll>
+    </>
   );
 };
 

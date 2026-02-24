@@ -60,6 +60,24 @@ cache_misses = Counter(
     ['cache_type']
 )
 
+ocr_timeout_count = Counter(
+    'ocr_timeouts_total',
+    'Total OCR timeout events',
+    ['document_type']
+)
+
+circuit_breaker_state = Gauge(
+    'circuit_breaker_state',
+    'Circuit breaker state (0=closed, 1=half_open, 2=open)',
+    ['service']
+)
+
+celery_queue_depth = Gauge(
+    'celery_queue_depth',
+    'Number of tasks in Celery queue',
+    ['queue_name']
+)
+
 rate_limit_exceeded = Counter(
     'rate_limit_exceeded_total',
     'Rate limit exceeded count',
@@ -287,6 +305,31 @@ def get_cache_hit_rate():
         return round(hits / total * 100, 2)
     except:
         return 0
+
+def check_alerting_rules():
+    """Check system metrics and return alerts for critical conditions."""
+    alerts = []
+
+    try:
+        cpu = psutil.cpu_percent(interval=0.5)
+        if cpu > 90:
+            alert_msg = f"CPU usage critically high: {cpu}%"
+            logger.critical("ALERT: %s", alert_msg)
+            alerts.append(alert_msg)
+    except Exception as e:
+        logger.error(f"Failed to check CPU usage: {e}")
+
+    try:
+        mem = psutil.virtual_memory().percent
+        if mem > 90:
+            alert_msg = f"Memory usage critically high: {mem}%"
+            logger.critical("ALERT: %s", alert_msg)
+            alerts.append(alert_msg)
+    except Exception as e:
+        logger.error(f"Failed to check memory usage: {e}")
+
+    return alerts
+
 
 class PerformanceMonitor:
     """Context manager for performance monitoring"""

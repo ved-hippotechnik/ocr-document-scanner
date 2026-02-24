@@ -78,6 +78,66 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
+  // Proactive token refresh: schedule refresh 5 minutes before JWT expiry
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let timeoutId;
+
+    const scheduleRefresh = () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        if (!token) return;
+
+        // Decode JWT payload (base64 middle segment)
+        const parts = token.split('.');
+        if (parts.length !== 3) return;
+
+        const payload = JSON.parse(atob(parts[1]));
+        const exp = payload.exp;
+        if (!exp) return;
+
+        const now = Math.floor(Date.now() / 1000);
+        // Refresh 5 minutes (300 seconds) before expiry
+        const refreshAt = (exp - 300 - now) * 1000;
+
+        if (refreshAt <= 0) return; // Already past refresh window
+
+        timeoutId = setTimeout(async () => {
+          try {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) return;
+
+            const response = await axios.post(`${API_URL}/api/auth/refresh`, {
+              refresh_token: refreshToken
+            });
+
+            if (response.data.access_token) {
+              localStorage.setItem('access_token', response.data.access_token);
+              if (response.data.refresh_token) {
+                localStorage.setItem('refresh_token', response.data.refresh_token);
+              }
+              // Reschedule for the new token
+              scheduleRefresh();
+            }
+          } catch (refreshError) {
+            // Silently fail; the reactive axios interceptor handles 401s
+            console.debug('Proactive token refresh failed:', refreshError.message);
+          }
+        }, refreshAt);
+      } catch (decodeError) {
+        // Malformed token; skip proactive refresh
+        console.debug('Could not decode token for proactive refresh:', decodeError.message);
+      }
+    };
+
+    scheduleRefresh();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isAuthenticated]);
+
   const checkAuth = async () => {
     try {
       const token = localStorage.getItem('access_token');

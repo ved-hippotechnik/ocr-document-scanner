@@ -1,6 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { API_URL } from '../config';
-import { validateFiles, formatFileSize as formatFileSizeUtil, showValidationError, clearValidationError } from '../utils/validation';
+import { formatFileSize as formatFileSizeUtil } from '../utils/validation';
+import useFileValidation from '../hooks/useFileValidation';
+import { fileToBase64 } from '../hooks/useDocumentScanning';
 import {
   Box,
   Button,
@@ -47,6 +49,7 @@ import { useDropzone } from 'react-dropzone';
 import { toast } from 'react-toastify';
 
 const BatchProcessor = () => {
+  const { validateBatch } = useFileValidation();
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedResults, setProcessedResults] = useState([]);
@@ -57,17 +60,9 @@ const BatchProcessor = () => {
   const [expandedRows, setExpandedRows] = useState({});
 
   const onDrop = useCallback((acceptedFiles) => {
-    const validation = validateFiles(acceptedFiles, 50);
-    
-    if (!validation.isValid) {
-      toast.error(validation.error);
-      return;
-    }
-    
-    if (validation.validFiles.length < acceptedFiles.length) {
-      toast.warning(validation.error); // Shows which files were skipped
-    }
-    
+    const validation = validateBatch(acceptedFiles, 50);
+    if (!validation.isValid) return;
+
     const newFiles = validation.validFiles.map(file => ({
       id: `${Date.now()}-${Math.random()}`,
       file,
@@ -79,7 +74,7 @@ const BatchProcessor = () => {
     }));
     
     setFiles(prev => [...prev, ...newFiles]);
-  }, []);
+  }, [validateBatch]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -172,15 +167,6 @@ const BatchProcessor = () => {
     }
   };
 
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  };
-
   const formatFileSize = formatFileSizeUtil; // Use unified utility
 
   const getStatusIcon = (status) => {
@@ -227,7 +213,7 @@ const BatchProcessor = () => {
     URL.revokeObjectURL(url);
   };
 
-  const getOverallStats = () => {
+  const overallStats = useMemo(() => {
     const total = processedResults.length;
     const successful = processedResults.filter(r => r.success).length;
     const failed = total - successful;
@@ -235,7 +221,7 @@ const BatchProcessor = () => {
     const avgConfidence = processedResults.reduce((sum, r) => sum + (r.classification?.confidence || 0), 0) / total;
 
     return { total, successful, failed, avgQuality, avgConfidence };
-  };
+  }, [processedResults]);
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
@@ -384,7 +370,7 @@ const BatchProcessor = () => {
               <Grid item xs={12} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h4" color="primary">
-                    {getOverallStats().total}
+                    {overallStats.total}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Total Documents
@@ -394,7 +380,7 @@ const BatchProcessor = () => {
               <Grid item xs={12} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h4" color="success.main">
-                    {getOverallStats().successful}
+                    {overallStats.successful}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Successful
@@ -404,7 +390,7 @@ const BatchProcessor = () => {
               <Grid item xs={12} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h4" color="error.main">
-                    {getOverallStats().failed}
+                    {overallStats.failed}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Failed
@@ -414,7 +400,7 @@ const BatchProcessor = () => {
               <Grid item xs={12} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h4" color="warning.main">
-                    {(getOverallStats().avgQuality * 100).toFixed(1)}%
+                    {(overallStats.avgQuality * 100).toFixed(1)}%
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Avg Quality

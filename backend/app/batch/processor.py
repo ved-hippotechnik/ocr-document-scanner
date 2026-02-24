@@ -291,12 +291,33 @@ class BatchJobManager:
             
             return result
             
+        except (base64.binascii.Error, ValueError) as e:
+            logger.warning(f"Invalid image data for document {document.get('id', 'unknown')}: {e}")
+            return {
+                'success': False,
+                'error': f'Invalid image data: {e}',
+                'document_id': document.get('id', 'unknown')
+            }
+        except KeyError as e:
+            logger.warning(f"Missing field for document {document.get('id', 'unknown')}: {e}")
+            return {
+                'success': False,
+                'error': f'Missing required field: {e}',
+                'document_id': document.get('id', 'unknown')
+            }
+        except (IOError, OSError) as e:
+            logger.error(f"I/O error processing document {document.get('id', 'unknown')}: {e}")
+            return {
+                'success': False,
+                'error': f'File processing error: {e}',
+                'document_id': document.get('id', 'unknown')
+            }
         except Exception as e:
-            logger.error(f"Error processing document {document.get('id', 'unknown')}: {e}")
+            logger.error(f"Unexpected error processing document {document.get('id', 'unknown')}: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
-                'document_id': document['id']
+                'document_id': document.get('id', 'unknown')
             }
     
     def _calculate_quality_score(self, ocr_result: Dict, classification_result: Dict) -> float:

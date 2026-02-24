@@ -55,7 +55,8 @@ def initialize_processors():
     # processor_registry.register(BrazilianIDProcessor())
     # processor_registry.register(MexicanIDProcessor())
     
-    print(f"✅ Registered {len(processor_registry.processors)} document processors")
+    import logging
+    logging.getLogger(__name__).info(f"Registered {len(processor_registry.processors)} document processors")
 
 # Initialize processors when module is imported
 initialize_processors()

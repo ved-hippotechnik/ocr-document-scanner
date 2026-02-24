@@ -61,26 +61,18 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title as ChartTitle,
-  Tooltip as ChartTooltip,
-  Legend,
-  ArcElement
-} from 'chart.js';
-import { Bar, Pie } from 'react-chartjs-2';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  ChartTitle,
-  ChartTooltip,
-  Legend,
-  ArcElement
-);
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend as RechartsLegend,
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer
+} from 'recharts';
 
 // Main Dashboard component
 const Dashboard = () => {
@@ -467,55 +459,30 @@ const Dashboard = () => {
     fetchDocuments();
   }, []);
 
-  // Prepare chart data for document types
-  const documentTypeChartData = {
-    labels: stats?.document_types ? Object.keys(stats.document_types).map(type => type.charAt(0).toUpperCase() + type.slice(1)) : [],
-    datasets: [
-      {
-        label: 'Document Types',
-        data: stats?.document_types ? Object.values(stats.document_types) : [],
-        backgroundColor: [
-          'rgba(54, 162, 235, 0.6)',
-          'rgba(255, 99, 132, 0.6)',
-          'rgba(255, 206, 86, 0.6)',
-        ],
-        borderColor: [
-          'rgba(54, 162, 235, 1)',
-          'rgba(255, 99, 132, 1)',
-          'rgba(255, 206, 86, 1)',
-        ],
-        borderWidth: 1,
-      },
-    ],
-  };
+  // Pie chart colors (Apple-inspired palette)
+  const PIE_COLORS = [
+    'rgba(0, 122, 255, 0.8)',   // Apple Blue
+    'rgba(52, 199, 89, 0.8)',   // Apple Green
+    'rgba(255, 149, 0, 0.8)',   // Apple Orange
+    'rgba(90, 200, 250, 0.8)',  // Apple Light Blue
+    'rgba(255, 59, 48, 0.8)',   // Apple Red
+  ];
 
-  // Prepare chart data for nationalities
-  const nationalitiesChartData = {
-    labels: stats?.nationalities ? Object.keys(stats.nationalities) : [],
-    datasets: [
-      {
-        label: 'Nationalities',
-        data: stats?.nationalities ? Object.values(stats.nationalities) : [],
-        backgroundColor: [
-          'rgba(75, 192, 192, 0.6)',
-          'rgba(153, 102, 255, 0.6)',
-          'rgba(255, 159, 64, 0.6)',
-          'rgba(255, 99, 132, 0.6)',
-          'rgba(54, 162, 235, 0.6)',
-          'rgba(255, 206, 86, 0.6)',
-        ],
-        borderColor: [
-          'rgba(75, 192, 192, 1)',
-          'rgba(153, 102, 255, 1)',
-          'rgba(255, 159, 64, 1)',
-          'rgba(255, 99, 132, 1)',
-          'rgba(54, 162, 235, 1)',
-          'rgba(255, 206, 86, 1)',
-        ],
-        borderWidth: 1,
-      },
-    ],
-  };
+  // Prepare chart data for document types (recharts format: array of objects)
+  const documentTypeChartData = stats?.document_types
+    ? Object.entries(stats.document_types).map(([type, count]) => ({
+        name: type.charAt(0).toUpperCase() + type.slice(1).replace('_', ' '),
+        value: count,
+      }))
+    : [];
+
+  // Prepare chart data for nationalities (recharts format: array of objects)
+  const nationalitiesChartData = stats?.nationalities
+    ? Object.entries(stats.nationalities).map(([nation, count]) => ({
+        name: nation,
+        value: count,
+      }))
+    : [];
 
   return (
     <Box sx={{ overflow: 'hidden' }}>
@@ -915,69 +882,41 @@ const Dashboard = () => {
                 />
               </Box>
               <Divider sx={{ mb: 3, opacity: 0.6 }} />
-              <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', px: { xs: 1, sm: 2, md: 3 } }}>
+              <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                 {stats?.total_scanned > 0 ? (
-                  <Pie 
-                    data={{
-                      ...documentTypeChartData,
-                      datasets: documentTypeChartData.datasets.map(dataset => ({
-                        ...dataset,
-                        backgroundColor: [
-                          'rgba(0, 122, 255, 0.8)',   // Apple Blue
-                          'rgba(52, 199, 89, 0.8)',   // Apple Green
-                          'rgba(255, 149, 0, 0.8)',   // Apple Orange
-                          'rgba(90, 200, 250, 0.8)',  // Apple Light Blue
-                          'rgba(255, 59, 48, 0.8)',   // Apple Red
-                        ],
-                        borderColor: [
-                          'rgba(0, 122, 255, 1)',
-                          'rgba(52, 199, 89, 1)',
-                          'rgba(255, 149, 0, 1)',
-                          'rgba(90, 200, 250, 1)',
-                          'rgba(255, 59, 48, 1)',
-                        ],
-                        borderWidth: 1,
-                        hoverBackgroundColor: [
-                          'rgba(0, 122, 255, 0.9)',
-                          'rgba(52, 199, 89, 0.9)',
-                          'rgba(255, 149, 0, 0.9)',
-                          'rgba(90, 200, 250, 0.9)',
-                          'rgba(255, 59, 48, 0.9)',
-                        ],
-                      }))
-                    }}
-                    options={{ 
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: {
-                          position: window.innerWidth < 600 ? 'top' : 'bottom',
-                          labels: {
-                            boxWidth: window.innerWidth < 600 ? 10 : 15,
-                            padding: window.innerWidth < 600 ? 10 : 15,
-                            font: {
-                              family: '-apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", sans-serif',
-                              size: window.innerWidth < 600 ? 10 : 12,
-                              weight: 500,
-                            },
-                            color: '#000',
-                          }
-                        },
-                        tooltip: {
-                          callbacks: {
-                            label: function(context) {
-                              if (stats && stats.total_scanned) {
-                                const label = context.label || '';
-                                const value = context.raw || 0;
-                                const percentage = ((value / stats.total_scanned) * 100).toFixed(1);
-                                return `${label}: ${value} (${percentage}%)`;
-                              }
-                              return '';
-                            }
-                          }
-                        }
-                      }
-                    }} 
-                  />
+                  <ResponsiveContainer width="100%" height={240}>
+                    <PieChart>
+                      <Pie
+                        data={documentTypeChartData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                        labelLine={true}
+                      >
+                        {documentTypeChartData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={PIE_COLORS[index % PIE_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        formatter={(value, name) => {
+                          const percentage = ((value / (stats?.total_scanned || 1)) * 100).toFixed(1);
+                          return [`${value} (${percentage}%)`, name];
+                        }}
+                      />
+                      <RechartsLegend
+                        layout="horizontal"
+                        verticalAlign="bottom"
+                        align="center"
+                        wrapperStyle={{ fontSize: '12px', fontWeight: 500, color: '#000' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 ) : (
                   <Box sx={{ textAlign: 'center', py: 5 }}>
                     <DescriptionIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
@@ -1038,76 +977,45 @@ const Dashboard = () => {
                 />
               </Box>
               <Divider sx={{ mb: 3, opacity: 0.6 }} />
-              <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', px: { xs: 1, sm: 2, md: 3 } }}>
+              <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                 {stats?.nationalities && Object.keys(stats.nationalities).length > 0 ? (
-                  <Bar 
-                    data={{
-                      ...nationalitiesChartData,
-                      datasets: nationalitiesChartData.datasets.map(dataset => ({
-                        ...dataset,
-                        backgroundColor: 'rgba(255, 149, 0, 0.8)',
-                        borderColor: 'rgba(255, 149, 0, 1)',
-                        borderWidth: 1,
-                        borderRadius: 6,
-                        hoverBackgroundColor: 'rgba(255, 149, 0, 0.9)',
-                      }))
-                    }}
-                    options={{ 
-                      maintainAspectRatio: false,
-                      indexAxis: 'y',
-                      scales: {
-                        y: {
-                          beginAtZero: true,
-                          grid: {
-                            display: false,
-                            drawBorder: false,
-                          },
-                          ticks: {
-                            font: {
-                              family: '-apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", sans-serif',
-                              size: window.innerWidth < 600 ? 10 : 12,
-                              weight: 500,
-                            },
-                            color: '#8E8E93',
-                          }
-                        },
-                        x: {
-                          beginAtZero: true,
-                          grid: {
-                            color: 'rgba(0, 0, 0, 0.05)',
-                            drawBorder: false,
-                          },
-                          ticks: {
-                            precision: 0,
-                            font: {
-                              family: '-apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", sans-serif',
-                              size: window.innerWidth < 600 ? 10 : 12,
-                              weight: 500,
-                            },
-                            color: '#8E8E93',
-                          }
-                        }
-                      },
-                      plugins: {
-                        legend: {
-                          display: false
-                        },
-                        tooltip: {
-                          callbacks: {
-                            label: function(context) {
-                              if (stats && stats.total_scanned) {
-                                const label = context.dataset.label || '';
-                                const value = context.raw || 0;
-                                const percentage = ((value / stats.total_scanned) * 100).toFixed(1);
-                                return `${label}: ${value} documents (${percentage}%)`;
-                              }
-                              return '';
-                            }
-                          }
-                        }
-                      }
-                    }} 
-                  />
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart
+                      layout="vertical"
+                      data={nationalitiesChartData}
+                      margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(0,0,0,0.05)" />
+                      <XAxis
+                        type="number"
+                        allowDecimals={false}
+                        tick={{ fill: '#8E8E93', fontSize: 12, fontWeight: 500 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={90}
+                        tick={{ fill: '#8E8E93', fontSize: 12, fontWeight: 500 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <RechartsTooltip
+                        formatter={(value) => {
+                          const percentage = ((value / (stats?.total_scanned || 1)) * 100).toFixed(1);
+                          return [`${value} documents (${percentage}%)`];
+                        }}
+                        cursor={{ fill: 'rgba(255, 149, 0, 0.05)' }}
+                      />
+                      <Bar
+                        dataKey="value"
+                        fill="rgba(255, 149, 0, 0.8)"
+                        radius={[0, 6, 6, 0]}
+                        maxBarSize={28}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
                 ) : (
                   <Box sx={{ textAlign: 'center', py: 5 }}>
                     <PublicIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />

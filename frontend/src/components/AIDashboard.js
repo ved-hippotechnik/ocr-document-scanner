@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { endpoints } from '../config';
+import { toast } from 'react-toastify';
 import {
   Box,
   Grid,
@@ -62,25 +63,23 @@ const AIDashboard = () => {
   const [trainingDialog, setTrainingDialog] = useState(false);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async (signal) => {
     try {
       setLoading(true);
-      
+      setLoadError(null);
+
       // Load AI metrics
-      const metricsResponse = await fetch(endpoints.aiMetrics);
-      
+      const metricsResponse = await fetch(endpoints.aiMetrics, { signal });
+
       if (metricsResponse.ok) {
         const metricsData = await metricsResponse.json();
         setMetrics(metricsData.metrics);
       }
 
       // Load supported document types
-      const typesResponse = await fetch(endpoints.aiSupportedTypes);
+      const typesResponse = await fetch(endpoints.aiSupportedTypes, { signal });
       if (typesResponse.ok) {
         const typesData = await typesResponse.json();
         setSupportedTypes(typesData.document_types);
@@ -98,11 +97,20 @@ const AIDashboard = () => {
       ]);
 
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      if (error.name !== 'AbortError') {
+        console.error('Error loading dashboard data:', error);
+        setLoadError(error.message);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadDashboardData(controller.signal);
+    return () => controller.abort();
+  }, [loadDashboardData]);
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -124,6 +132,7 @@ const AIDashboard = () => {
       }
     } catch (error) {
       console.error('Error submitting feedback:', error);
+      toast.error('Failed to submit feedback. Please try again.');
     }
   };
 
@@ -142,21 +151,43 @@ const AIDashboard = () => {
       }
     } catch (error) {
       console.error('Error updating threshold:', error);
+      toast.error('Failed to update confidence threshold. Please try again.');
     }
   };
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
-  const documentTypeData = supportedTypes.map((type, index) => ({
-    name: type.name,
-    value: Math.floor(Math.random() * 100) + 10,
-    color: COLORS[index % COLORS.length]
-  }));
+  const documentTypeData = useMemo(
+    () =>
+      supportedTypes.map((type, index) => ({
+        name: type.name,
+        value: Math.floor(Math.random() * 100) + 10,
+        color: COLORS[index % COLORS.length]
+      })),
+    [supportedTypes] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
         <LinearProgress sx={{ width: '50%' }} />
+      </Box>
+    );
+  }
+
+  if (loadError && !loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => loadDashboardData()}>
+              Retry
+            </Button>
+          }
+        >
+          Failed to load dashboard data: {loadError}
+        </Alert>
       </Box>
     );
   }

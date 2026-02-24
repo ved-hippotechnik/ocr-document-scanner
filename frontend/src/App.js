@@ -1,20 +1,38 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import CircularProgress from '@mui/material/CircularProgress';
+import Box from '@mui/material/Box';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
-import Scanner from './pages/Scanner';
-import AIScanner from './components/AIScanner';
-import BatchProcessor from './components/BatchProcessor';
-import AIDashboard from './components/AIDashboard';
-import AdminDashboard from './components/AdminDashboard';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OfflineStatus from './components/OfflineStatus';
 import UpdatePrompt from './components/UpdatePrompt';
 import { registerServiceWorker, requestNotificationPermission } from './utils/pwaUtils';
 import './App.css';
+
+// Lazy-load heavy route components
+const Scanner = React.lazy(() => import('./pages/Scanner'));
+const AIScanner = React.lazy(() => import('./components/AIScanner'));
+const BatchProcessor = React.lazy(() => import('./components/BatchProcessor'));
+const AIDashboard = React.lazy(() => import('./components/AIDashboard'));
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
+const DeveloperPortal = React.lazy(() => import('./pages/developer/DeveloperPortal'));
+const DevDashboard = React.lazy(() => import('./pages/developer/DevDashboard'));
+const ApiKeysPage = React.lazy(() => import('./pages/developer/ApiKeys'));
+const UsageDashboardPage = React.lazy(() => import('./pages/developer/UsageDashboard'));
+const WebhooksPage = React.lazy(() => import('./pages/developer/Webhooks'));
+const DocumentationPage = React.lazy(() => import('./pages/developer/Documentation'));
+
+function RouteLoader() {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <CircularProgress />
+    </Box>
+  );
+}
 
 // Apple-inspired theme with responsive breakpoints
 const theme = createTheme({
@@ -203,38 +221,51 @@ function App() {
               <Navbar />
             </ErrorBoundary>
             <div className="content">
-              <Routes>
-                <Route path="/" element={
-                  <ErrorBoundary fallbackMessage="Dashboard failed to load">
-                    <Dashboard />
-                  </ErrorBoundary>
-                } />
-                <Route path="/scanner" element={
-                  <ErrorBoundary fallbackMessage="Scanner failed to load">
-                    <Scanner />
-                  </ErrorBoundary>
-                } />
-                <Route path="/ai-scanner" element={
-                  <ErrorBoundary fallbackMessage="AI Scanner failed to load">
-                    <AIScanner />
-                  </ErrorBoundary>
-                } />
-                <Route path="/batch-processor" element={
-                  <ErrorBoundary fallbackMessage="Batch Processor failed to load">
-                    <BatchProcessor />
-                  </ErrorBoundary>
-                } />
-                <Route path="/ai-dashboard" element={
-                  <ErrorBoundary fallbackMessage="AI Dashboard failed to load">
-                    <AIDashboard />
-                  </ErrorBoundary>
-                } />
-                <Route path="/admin" element={
-                  <ErrorBoundary fallbackMessage="Admin Dashboard failed to load">
-                    <AdminDashboard />
-                  </ErrorBoundary>
-                } />
-              </Routes>
+              <Suspense fallback={<RouteLoader />}>
+                <Routes>
+                  <Route path="/" element={
+                    <ErrorBoundary fallbackMessage="Dashboard failed to load">
+                      <Dashboard />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/scanner" element={
+                    <ErrorBoundary fallbackMessage="Scanner failed to load">
+                      <Scanner />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/ai-scanner" element={
+                    <ErrorBoundary fallbackMessage="AI Scanner failed to load">
+                      <AIScanner />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/batch-processor" element={
+                    <ErrorBoundary fallbackMessage="Batch Processor failed to load">
+                      <BatchProcessor />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/ai-dashboard" element={
+                    <ErrorBoundary fallbackMessage="AI Dashboard failed to load">
+                      <AIDashboard />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/admin" element={
+                    <ErrorBoundary fallbackMessage="Admin Dashboard failed to load">
+                      <AdminDashboard />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/developer" element={
+                    <ErrorBoundary fallbackMessage="Developer Portal failed to load">
+                      <DeveloperPortal />
+                    </ErrorBoundary>
+                  }>
+                    <Route index element={<DevDashboard />} />
+                    <Route path="keys" element={<ApiKeysPage />} />
+                    <Route path="usage" element={<UsageDashboardPage />} />
+                    <Route path="webhooks" element={<WebhooksPage />} />
+                    <Route path="docs" element={<DocumentationPage />} />
+                  </Route>
+                </Routes>
+              </Suspense>
             </div>
             
             {/* PWA Components with Error Boundaries */}

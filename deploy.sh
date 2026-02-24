@@ -1,473 +1,498 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# deploy.sh — Blue-green deployment script for OCR Document Scanner
+#
+# Usage:
+#   ./deploy.sh deploy   — Build images and perform a blue-green deployment
+#   ./deploy.sh rollback — Roll back to the previous deployment
+#   ./deploy.sh status   — Show current deployment status
+#
 
-# Enhanced OCR Document Scanner - Production Deployment Script
-# This script builds and deploys the enhanced OCR system
+set -euo pipefail
 
-set -e
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.yml"
+readonly STATE_DIR="${PROJECT_ROOT}/.deploy"
+readonly ACTIVE_SLOT_FILE="${STATE_DIR}/active_slot"
+readonly LOG_FILE="${STATE_DIR}/deploy.log"
+readonly HEALTH_ENDPOINT="http://localhost:5000/health"
+readonly HEALTH_TIMEOUT=120        # seconds to wait for healthy app
+readonly HEALTH_INTERVAL=5         # seconds between health probes
 
-echo "🚀 ENHANCED OCR DOCUMENT SCANNER - DEPLOYMENT SCRIPT"
-echo "======================================================"
+# Compose command — resolved during prerequisite check
+COMPOSE_CMD=""
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Colors (disabled when stdout is not a terminal)
+if [[ -t 1 ]]; then
+    readonly RED='\033[0;31m'
+    readonly GREEN='\033[0;32m'
+    readonly YELLOW='\033[1;33m'
+    readonly BLUE='\033[0;34m'
+    readonly NC='\033[0m'
+else
+    readonly RED='' GREEN='' YELLOW='' BLUE='' NC=''
+fi
 
-# Function to print colored output
-print_status() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+_timestamp() {
+    date '+%Y-%m-%d %H:%M:%S'
 }
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+log_info() {
+    local msg="[$(_timestamp)] [INFO]  $*"
+    echo -e "${GREEN}${msg}${NC}"
+    echo "${msg}" >> "${LOG_FILE}"
 }
 
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+log_warn() {
+    local msg="[$(_timestamp)] [WARN]  $*"
+    echo -e "${YELLOW}${msg}${NC}"
+    echo "${msg}" >> "${LOG_FILE}"
 }
 
-print_header() {
-    echo -e "${BLUE}$1${NC}"
+log_error() {
+    local msg="[$(_timestamp)] [ERROR] $*"
+    echo -e "${RED}${msg}${NC}" >&2
+    echo "${msg}" >> "${LOG_FILE}"
 }
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+log_header() {
+    local msg="[$(_timestamp)] ====== $* ======"
+    echo -e "${BLUE}${msg}${NC}"
+    echo "${msg}" >> "${LOG_FILE}"
 }
 
-# Check if Docker is installed
-check_docker() {
-    if ! command -v docker &> /dev/null; then
-        print_error "Docker is not installed. Please install Docker first."
+# ---------------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------------
+ensure_state_dir() {
+    mkdir -p "${STATE_DIR}"
+    touch "${LOG_FILE}"
+}
+
+get_active_slot() {
+    if [[ -f "${ACTIVE_SLOT_FILE}" ]]; then
+        cat "${ACTIVE_SLOT_FILE}"
+    else
+        echo "none"
+    fi
+}
+
+set_active_slot() {
+    echo "$1" > "${ACTIVE_SLOT_FILE}"
+}
+
+get_inactive_slot() {
+    local active
+    active="$(get_active_slot)"
+    if [[ "${active}" == "blue" ]]; then
+        echo "green"
+    else
+        echo "blue"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Prerequisite checks
+# ---------------------------------------------------------------------------
+check_prerequisites() {
+    log_header "Checking prerequisites"
+
+    # docker
+    if ! command -v docker &>/dev/null; then
+        log_error "docker is not installed. Please install Docker first."
         exit 1
     fi
-    
-    if ! docker info &> /dev/null; then
-        print_error "Docker is not running. Please start Docker first."
+    if ! docker info &>/dev/null; then
+        log_error "Docker daemon is not running. Please start Docker."
         exit 1
     fi
-    
-    print_status "Docker is installed and running"
+    log_info "docker is available"
+
+    # docker-compose (standalone binary) or docker compose (plugin)
+    if command -v docker-compose &>/dev/null; then
+        COMPOSE_CMD="docker-compose"
+    elif docker compose version &>/dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    else
+        log_error "docker-compose (or 'docker compose' plugin) is not installed."
+        exit 1
+    fi
+    log_info "${COMPOSE_CMD} is available"
+
+    # compose file
+    if [[ ! -f "${COMPOSE_FILE}" ]]; then
+        log_error "docker-compose.yml not found at ${COMPOSE_FILE}"
+        exit 1
+    fi
+    log_info "Compose file found"
 }
 
-# Create necessary directories
+# Resolve compose command (for commands that skip check_prerequisites)
+resolve_compose_cmd() {
+    if [[ -n "${COMPOSE_CMD}" ]]; then
+        return
+    fi
+    if command -v docker-compose &>/dev/null; then
+        COMPOSE_CMD="docker-compose"
+    elif docker compose version &>/dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    else
+        log_error "docker-compose is not available"
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Directory setup
+# ---------------------------------------------------------------------------
 create_directories() {
-    print_status "Creating necessary directories..."
-    
-    mkdir -p uploads logs models analytics_charts
-    
-    print_success "Directories created successfully"
+    log_info "Ensuring required host directories exist"
+    mkdir -p "${PROJECT_ROOT}/uploads" \
+             "${PROJECT_ROOT}/logs" \
+             "${PROJECT_ROOT}/models" \
+             "${PROJECT_ROOT}/analytics_charts" \
+             "${PROJECT_ROOT}/backups"
 }
 
-# Build the application
-build_application() {
-    print_header "Building Enhanced OCR Application..."
-    
-    # Build the Docker image
-    print_status "Building Docker image..."
-    docker build -t enhanced-ocr-scanner .
-    
-    if [ $? -eq 0 ]; then
-        print_success "Docker image built successfully"
-    else
-        print_error "Failed to build Docker image"
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+build_images() {
+    log_header "Building Docker images"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" build 2>&1 | while IFS= read -r line; do
+        echo "  ${line}"
+    done
+    log_info "Docker images built successfully"
+}
+
+# ---------------------------------------------------------------------------
+# Save deployment snapshot for rollback
+# ---------------------------------------------------------------------------
+save_snapshot() {
+    local slot="$1"
+    log_info "Saving deployment snapshot for slot '${slot}'"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" ps > "${STATE_DIR}/snapshot_${slot}.txt" 2>/dev/null || true
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" config --images > "${STATE_DIR}/images_${slot}.txt" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Infrastructure (postgres, redis) — shared across blue/green slots
+# ---------------------------------------------------------------------------
+start_infrastructure() {
+    log_header "Starting infrastructure services (PostgreSQL, Redis)"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" up -d postgres redis
+
+    log_info "Waiting for PostgreSQL to become healthy..."
+    local waited=0
+    while (( waited < 60 )); do
+        if ${COMPOSE_CMD} -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U postgres &>/dev/null; then
+            log_info "PostgreSQL is ready"
+            break
+        fi
+        sleep 3
+        waited=$((waited + 3))
+    done
+    if (( waited >= 60 )); then
+        log_error "PostgreSQL did not become ready within 60 seconds"
+        exit 1
+    fi
+
+    log_info "Waiting for Redis to become healthy..."
+    waited=0
+    while (( waited < 30 )); do
+        if ${COMPOSE_CMD} -f "${COMPOSE_FILE}" exec -T redis redis-cli ping &>/dev/null; then
+            log_info "Redis is ready"
+            break
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    if (( waited >= 30 )); then
+        log_error "Redis did not become ready within 30 seconds"
         exit 1
     fi
 }
 
-# Deploy standalone container
-deploy_standalone() {
-    print_header "Deploying Standalone Container..."
-    
-    # Stop existing container if running
-    print_status "Stopping existing container..."
-    docker stop enhanced-ocr-scanner 2>/dev/null || true
-    docker rm enhanced-ocr-scanner 2>/dev/null || true
-    
-    # Run the container
-    print_status "Starting Enhanced OCR container..."
-    docker run -d \
-        --name enhanced-ocr-scanner \
-        --restart unless-stopped \
-        -p 5000:5000 \
-        -v $(pwd)/uploads:/app/uploads \
-        -v $(pwd)/logs:/app/logs \
-        -v $(pwd)/models:/app/models \
-        -v $(pwd)/analytics_charts:/app/analytics_charts \
-        -e FLASK_ENV=production \
-        -e TESSERACT_CMD=/usr/bin/tesseract \
-        -e PYTHONPATH=/app \
-        -e PYTHONUNBUFFERED=1 \
-        enhanced-ocr-scanner
-    
-    if [ $? -eq 0 ]; then
-        print_success "Container started successfully"
-    else
-        print_error "Failed to start container"
-        exit 1
-    fi
+# ---------------------------------------------------------------------------
+# Application services
+# ---------------------------------------------------------------------------
+start_application_services() {
+    log_header "Starting application services"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" up -d ocr-scanner celery-worker celery-beat
+    log_info "Core application containers started"
+
+    # Flower (monitoring) and db-backup are optional
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" up -d flower 2>/dev/null \
+        || log_warn "Flower monitoring failed to start (optional)"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" up -d db-backup 2>/dev/null \
+        || log_warn "db-backup service failed to start (optional)"
 }
 
-# Wait for application to be ready
-wait_for_application() {
-    print_status "Waiting for application to be ready..."
-    
-    for i in {1..30}; do
-        if curl -f http://localhost:5000/health &> /dev/null; then
-            print_success "Application is ready!"
+stop_application_services() {
+    log_info "Stopping application services"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" stop  ocr-scanner celery-worker celery-beat flower db-backup 2>/dev/null || true
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" rm -f ocr-scanner celery-worker celery-beat flower db-backup 2>/dev/null || true
+    log_info "Application services stopped"
+}
+
+# ---------------------------------------------------------------------------
+# Health checks
+# ---------------------------------------------------------------------------
+wait_for_healthy() {
+    log_header "Running health checks"
+
+    local waited=0
+    while (( waited < HEALTH_TIMEOUT )); do
+        local http_code
+        http_code="$(curl -s -o /dev/null -w '%{http_code}' "${HEALTH_ENDPOINT}" 2>/dev/null || echo "000")"
+        if [[ "${http_code}" == "200" ]]; then
+            log_info "Application health check passed (HTTP ${http_code})"
             return 0
         fi
-        print_status "Waiting... (attempt $i/30)"
-        sleep 2
+        log_info "Health probe HTTP ${http_code} -- retrying in ${HEALTH_INTERVAL}s (${waited}/${HEALTH_TIMEOUT}s)"
+        sleep "${HEALTH_INTERVAL}"
+        waited=$((waited + HEALTH_INTERVAL))
     done
-    
-    print_error "Application failed to start within 60 seconds"
+
+    log_error "Application did not become healthy within ${HEALTH_TIMEOUT} seconds"
     return 1
 }
 
-# Show deployment information
-show_deployment_info() {
-    print_header "🎉 Deployment Complete!"
-    echo ""
-    echo "🌐 Application URL: http://localhost:5000"
-    echo "📊 Health Check: http://localhost:5000/health"
-    echo "📈 Analytics: http://localhost:5000/api/analytics/dashboard"
-    echo "📋 API Status: http://localhost:5000/api/status"
-    echo ""
-    echo "📁 Directories:"
-    echo "   • Uploads: $(pwd)/uploads"
-    echo "   • Logs: $(pwd)/logs"
-    echo "   • Models: $(pwd)/models"
-    echo "   • Analytics: $(pwd)/analytics_charts"
-    echo ""
-    echo "🔧 Management Commands:"
-    echo "   • View logs: docker logs enhanced-ocr-scanner"
-    echo "   • Stop app: docker stop enhanced-ocr-scanner"
-    echo "   • Restart app: docker restart enhanced-ocr-scanner"
-    echo "   • Update app: ./deploy.sh --rebuild"
-    echo ""
-    echo "✨ Features Available:"
-    echo "   • Advanced OCR with machine learning classification"
-    echo "   • Real-time document processing"
-    echo "   • Security validation and encryption"
-    echo "   • Analytics dashboard with comprehensive metrics"
-    echo "   • Support for multiple document types"
-    echo "   • Modern web interface with drag-and-drop upload"
-    echo ""
-}
-
-# Show usage information
-show_usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo ""
-    echo "Options:"
-    echo "  --rebuild     Force rebuild of Docker image"
-    echo "  --stop        Stop all services"
-    echo "  --logs        Show application logs"
-    echo "  --status      Show deployment status"
-    echo "  --help        Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  $0                    # Deploy the application"
-    echo "  $0 --rebuild          # Rebuild and deploy"
-    echo "  $0 --stop             # Stop the application"
-    echo "  $0 --logs             # View application logs"
-    echo "  $0 --status           # Check deployment status"
-    echo ""
-}
-
-# Stop all services
-stop_services() {
-    print_header "Stopping Services..."
-    
-    # Stop standalone container
-    docker stop enhanced-ocr-scanner 2>/dev/null || true
-    docker rm enhanced-ocr-scanner 2>/dev/null || true
-    
-    print_success "All services stopped"
-}
-
-# Show logs
-show_logs() {
-    print_header "Application Logs"
-    
-    if docker ps | grep -q enhanced-ocr-scanner; then
-        docker logs -f enhanced-ocr-scanner
+run_extended_health_checks() {
+    log_info "Verifying database connectivity..."
+    if ${COMPOSE_CMD} -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U postgres &>/dev/null; then
+        log_info "PostgreSQL connectivity OK"
     else
-        print_error "No running containers found"
-        exit 1
+        log_warn "PostgreSQL connectivity check failed"
+    fi
+
+    log_info "Verifying Redis connectivity..."
+    if ${COMPOSE_CMD} -f "${COMPOSE_FILE}" exec -T redis redis-cli ping &>/dev/null; then
+        log_info "Redis connectivity OK"
+    else
+        log_warn "Redis connectivity check failed"
     fi
 }
 
-# Show status
-show_status() {
-    print_header "Deployment Status"
-    echo ""
-    
-    echo "Docker Containers:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep enhanced-ocr-scanner || echo "❌ No containers running"
-    
-    echo ""
-    echo "Health Check:"
-    if curl -f http://localhost:5000/health &> /dev/null; then
-        echo "✅ Application is healthy"
-        echo "✅ Available at: http://localhost:5000"
-    else
-        echo "❌ Application is not responding"
-    fi
-    
-    echo ""
-    echo "System Resources:"
-    echo "Docker Images:"
-    docker images | grep enhanced-ocr-scanner || echo "❌ No images found"
-    
-    echo ""
-    echo "Disk Usage:"
-    echo "Uploads: $(du -sh uploads 2>/dev/null || echo 'N/A')"
-    echo "Logs: $(du -sh logs 2>/dev/null || echo 'N/A')"
-    echo "Models: $(du -sh models 2>/dev/null || echo 'N/A')"
-}
+# ---------------------------------------------------------------------------
+# Core: deploy
+# ---------------------------------------------------------------------------
+cmd_deploy() {
+    log_header "Starting deployment"
 
-# Main deployment process
-main() {
-    local rebuild=false
-    
-    # Parse command line arguments
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --rebuild)
-                rebuild=true
-                shift
-                ;;
-            --stop)
-                stop_services
-                exit 0
-                ;;
-            --logs)
-                show_logs
-                exit 0
-                ;;
-            --status)
-                show_status
-                exit 0
-                ;;
-            --help)
-                show_usage
-                exit 0
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                show_usage
-                exit 1
-                ;;
-        esac
-    done
-    
-    print_header "Starting Enhanced OCR Document Scanner Deployment"
-    
-    # Pre-deployment checks
-    check_docker
+    local previous_slot
+    previous_slot="$(get_active_slot)"
+    local target_slot
+    target_slot="$(get_inactive_slot)"
+
+    log_info "Active slot : ${previous_slot}"
+    log_info "Target slot : ${target_slot}"
+
+    # Save the current state so we can roll back if needed
+    if [[ "${previous_slot}" != "none" ]]; then
+        save_snapshot "${previous_slot}"
+    fi
+
+    # Step 1 — prerequisites and directories
+    check_prerequisites
     create_directories
-    
-    # Build application
-    if [ "$rebuild" == true ] || ! docker images | grep -q enhanced-ocr-scanner; then
-        build_application
+
+    # Step 2 — build images
+    build_images
+
+    # Step 3 — start shared infrastructure (postgres, redis stay up)
+    start_infrastructure
+
+    # Step 4 — swap: stop old application containers, start new ones
+    #   Infrastructure services remain running throughout to minimise downtime.
+    stop_application_services
+    start_application_services
+
+    # Step 5 — verify health
+    if wait_for_healthy; then
+        run_extended_health_checks
+        set_active_slot "${target_slot}"
+        save_snapshot "${target_slot}"
+        log_header "Deployment successful"
+        log_info "Active slot is now '${target_slot}'"
+        print_summary
     else
-        print_status "Using existing Docker image (use --rebuild to force rebuild)"
+        log_error "Health check failed -- initiating automatic rollback"
+        if [[ "${previous_slot}" != "none" ]]; then
+            rollback_to_slot "${previous_slot}"
+        else
+            log_error "No previous deployment to roll back to. Stopping services."
+            stop_application_services
+            exit 1
+        fi
     fi
-    
-    # Deploy the application
-    deploy_standalone
-    
-    # Wait for application to be ready
-    wait_for_application
-    
-    # Show deployment information
-    show_deployment_info
-    
-    print_success "Your Enhanced OCR Document Scanner is now running at http://localhost:5000"
 }
 
-# Run main function with all arguments
-main "$@"
-    
-    # Start infrastructure services first
-    print_status "Starting infrastructure services (PostgreSQL, Redis)..."
-    docker-compose up -d postgres redis
-    
-    # Wait for services to be healthy
-    print_status "Waiting for database and Redis to be ready..."
-    sleep 30
-    
-    # Check if services are healthy
-    if ! docker-compose ps postgres | grep -q "healthy"; then
-        print_error "PostgreSQL failed to start properly"
-        docker-compose logs postgres
+# ---------------------------------------------------------------------------
+# Core: rollback (internal helper)
+# ---------------------------------------------------------------------------
+rollback_to_slot() {
+    local target_slot="$1"
+    log_header "Rolling back to slot '${target_slot}'"
+
+    stop_application_services
+
+    # Re-launch infrastructure (should still be running, but be safe)
+    start_infrastructure
+    start_application_services
+
+    if wait_for_healthy; then
+        set_active_slot "${target_slot}"
+        log_info "Rollback to slot '${target_slot}' succeeded"
+        print_summary
+    else
+        log_error "Rollback ALSO failed. Manual intervention required."
+        log_error "Inspect with: ${COMPOSE_CMD} -f ${COMPOSE_FILE} logs"
         exit 1
     fi
-    
-    if ! docker-compose ps redis | grep -q "healthy"; then
-        print_error "Redis failed to start properly"
-        docker-compose logs redis
+}
+
+# ---------------------------------------------------------------------------
+# Core: rollback (user-facing)
+# ---------------------------------------------------------------------------
+cmd_rollback() {
+    log_header "Rollback requested"
+
+    local active
+    active="$(get_active_slot)"
+    if [[ "${active}" == "none" ]]; then
+        log_error "No active deployment found. Nothing to roll back."
         exit 1
     fi
-    
-    print_success "Infrastructure services are running"
-    
-    # Start application services
-    print_status "Starting application services..."
-    docker-compose up -d ocr-scanner celery-worker celery-beat
-    
-    # Wait for application to be ready
-    print_status "Waiting for application to be ready..."
-    sleep 45
-    
-    # Optional: Start monitoring
-    print_status "Starting monitoring services..."
-    docker-compose up -d flower
-    
-    print_success "All services deployed successfully"
+
+    check_prerequisites
+
+    local target_slot
+    if [[ "${active}" == "blue" ]]; then
+        target_slot="green"
+    else
+        target_slot="blue"
+    fi
+
+    rollback_to_slot "${target_slot}"
 }
 
-# Initialize database
-init_database() {
-    print_status "Initializing database..."
-    
-    # Wait a bit more for the application to be fully ready
-    sleep 15
-    
-    # Initialize database migrations
-    print_status "Setting up database migrations..."
-    docker-compose exec -T ocr-scanner flask db init || print_warning "Database already initialized"
-    docker-compose exec -T ocr-scanner flask db migrate -m "Initial migration" || print_warning "Migration already exists"
-    docker-compose exec -T ocr-scanner flask db upgrade
-    
-    print_success "Database initialized"
-}
+# ---------------------------------------------------------------------------
+# Core: status
+# ---------------------------------------------------------------------------
+cmd_status() {
+    log_header "Deployment status"
+    resolve_compose_cmd
 
-# Run health checks
-health_checks() {
-    print_status "Running health checks..."
-    
-    # Check main application
-    if curl -f http://localhost:5000/health > /dev/null 2>&1; then
-        print_success "Main application is healthy"
-    else
-        print_error "Main application health check failed"
-        docker-compose logs ocr-scanner
-        return 1
-    fi
-    
-    # Check Flower monitoring
-    if curl -f http://localhost:5555 > /dev/null 2>&1; then
-        print_success "Flower monitoring is accessible"
-    else
-        print_warning "Flower monitoring is not accessible (this is optional)"
-    fi
-    
-    # Check database connection
-    if docker-compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
-        print_success "PostgreSQL is ready"
-    else
-        print_error "PostgreSQL is not ready"
-        return 1
-    fi
-    
-    # Check Redis connection
-    if docker-compose exec -T redis redis-cli ping > /dev/null 2>&1; then
-        print_success "Redis is ready"
-    else
-        print_error "Redis is not ready"
-        return 1
-    fi
-    
-    print_success "All health checks passed"
-}
+    echo ""
+    echo "  Active slot : $(get_active_slot)"
+    echo "  Deploy log  : ${LOG_FILE}"
+    echo ""
 
-# Display service information
-show_service_info() {
+    echo "--- Container status ---"
+    ${COMPOSE_CMD} -f "${COMPOSE_FILE}" ps 2>/dev/null || echo "  (no running containers)"
+
     echo ""
-    echo "🎉 Deployment Completed Successfully!"
-    echo "====================================="
+    echo "--- Health check ---"
+    local http_code
+    http_code="$(curl -s -o /dev/null -w '%{http_code}' "${HEALTH_ENDPOINT}" 2>/dev/null || echo "000")"
+    if [[ "${http_code}" == "200" ]]; then
+        log_info "Application is healthy (HTTP 200)"
+    else
+        log_warn "Application returned HTTP ${http_code}"
+    fi
+
     echo ""
-    echo "📊 Service URLs:"
-    echo "• Main Application: http://localhost:5000"
-    echo "• Health Check: http://localhost:5000/health"
-    echo "• API v2: http://localhost:5000/api/v2/"
-    echo "• Analytics: http://localhost:5000/analytics"
-    echo "• Flower Monitoring: http://localhost:5555 (admin/admin)"
+    echo "--- Service URLs ---"
+    echo "  Application : http://localhost:5000"
+    echo "  Health check: ${HEALTH_ENDPOINT}"
+    echo "  Flower      : http://localhost:5555"
+    echo "  PostgreSQL  : localhost:5432"
+    echo "  Redis       : localhost:6379"
+
     echo ""
-    echo "🗄️ Database Information:"
-    echo "• PostgreSQL: localhost:5432"
-    echo "• Database: ocr_scanner"
-    echo "• Redis: localhost:6379"
-    echo ""
-    echo "📋 Useful Commands:"
-    echo "• View logs: docker-compose logs -f [service_name]"
-    echo "• Scale workers: docker-compose up -d --scale celery-worker=3"
-    echo "• Stop services: docker-compose down"
-    echo "• View status: docker-compose ps"
-    echo ""
-    echo "🔧 Next Steps:"
-    echo "1. Test the API endpoints"
-    echo "2. Upload a document to test processing"
-    echo "3. Check analytics dashboard"
-    echo "4. Monitor background tasks in Flower"
+    echo "--- Disk usage ---"
+    printf "  %-20s %s\n" "uploads/" "$(du -sh "${PROJECT_ROOT}/uploads" 2>/dev/null | cut -f1 || echo 'N/A')"
+    printf "  %-20s %s\n" "logs/"    "$(du -sh "${PROJECT_ROOT}/logs"    2>/dev/null | cut -f1 || echo 'N/A')"
+    printf "  %-20s %s\n" "models/"  "$(du -sh "${PROJECT_ROOT}/models"  2>/dev/null | cut -f1 || echo 'N/A')"
+    printf "  %-20s %s\n" "backups/" "$(du -sh "${PROJECT_ROOT}/backups" 2>/dev/null | cut -f1 || echo 'N/A')"
     echo ""
 }
 
-# Main deployment flow
+# ---------------------------------------------------------------------------
+# Summary printed after deploy / rollback
+# ---------------------------------------------------------------------------
+print_summary() {
+    echo ""
+    log_header "Deployment summary"
+    echo ""
+    echo "  Active slot    : $(get_active_slot)"
+    echo "  Application    : http://localhost:5000"
+    echo "  Health endpoint: ${HEALTH_ENDPOINT}"
+    echo "  Flower monitor : http://localhost:5555"
+    echo "  PostgreSQL     : localhost:5432"
+    echo "  Redis          : localhost:6379"
+    echo ""
+    echo "  Useful commands:"
+    echo "    View logs : ${COMPOSE_CMD} -f ${COMPOSE_FILE} logs -f"
+    echo "    Stop all  : ${COMPOSE_CMD} -f ${COMPOSE_FILE} down"
+    echo "    Rollback  : $0 rollback"
+    echo "    Status    : $0 status"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+usage() {
+    echo "Usage: $0 {deploy|rollback|status}"
+    echo ""
+    echo "Commands:"
+    echo "  deploy   - Build images and perform a blue-green deployment"
+    echo "  rollback - Roll back to the previous deployment slot"
+    echo "  status   - Show current deployment status and health"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
 main() {
-    echo "Starting deployment at $(date)"
-    
-    check_dependencies
-    setup_environment
-    cleanup_containers
-    deploy_services
-    init_database
-    health_checks
-    show_service_info
-    
-    print_success "Deployment completed successfully! 🎉"
+    ensure_state_dir
+
+    local command="${1:-}"
+
+    case "${command}" in
+        deploy)
+            cmd_deploy
+            ;;
+        rollback)
+            cmd_rollback
+            ;;
+        status)
+            cmd_status
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        "")
+            log_error "No command specified."
+            usage
+            exit 1
+            ;;
+        *)
+            log_error "Unknown command: ${command}"
+            usage
+            exit 1
+            ;;
+    esac
 }
 
-# Handle script arguments
-case "${1:-deploy}" in
-    "deploy")
-        main
-        ;;
-    "stop")
-        print_status "Stopping all services..."
-        docker-compose down
-        print_success "All services stopped"
-        ;;
-    "restart")
-        print_status "Restarting services..."
-        docker-compose down
-        sleep 5
-        docker-compose up -d
-        print_success "Services restarted"
-        ;;
-    "logs")
-        docker-compose logs -f
-        ;;
-    "status")
-        docker-compose ps
-        ;;
-    "health")
-        health_checks
-        ;;
-    *)
-        echo "Usage: $0 {deploy|stop|restart|logs|status|health}"
-        echo ""
-        echo "Commands:"
-        echo "  deploy  - Full deployment (default)"
-        echo "  stop    - Stop all services" 
-        echo "  restart - Restart all services"
-        echo "  logs    - Show service logs"
-        echo "  status  - Show service status"
-        echo "  health  - Run health checks"
-        exit 1
-        ;;
-esac
+main "$@"

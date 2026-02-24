@@ -268,6 +268,44 @@ RATE_LIMIT_MESSAGES = {
     'analytics': 'Analytics request limit reached. Please try again later.'
 }
 
+def ratelimit_adaptive(normal_limit: str = "20 per minute"):
+    """Adaptive rate limiter that tightens under CPU pressure.
+
+    - CPU < 75%: ``normal_limit``
+    - 75-90%: halved
+    - > 90%: quartered
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not limiter:
+                return f(*args, **kwargs)
+            try:
+                import psutil
+                cpu = psutil.cpu_percent(interval=0)
+            except Exception:
+                cpu = 0.0
+
+            # Parse the numeric portion of the limit string (e.g. "20 per minute")
+            parts = normal_limit.split()
+            try:
+                base = int(parts[0])
+            except (IndexError, ValueError):
+                base = 20
+            suffix = " ".join(parts[1:]) or "per minute"
+
+            if cpu > 90:
+                effective = max(1, base // 4)
+            elif cpu > 75:
+                effective = max(1, base // 2)
+            else:
+                effective = base
+
+            return limiter.limit(f"{effective} {suffix}")(f)(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
 def get_rate_limit_message(endpoint_type: str = 'default') -> str:
     """Get appropriate rate limit message for endpoint type"""
     return RATE_LIMIT_MESSAGES.get(endpoint_type, RATE_LIMIT_MESSAGES['default'])
