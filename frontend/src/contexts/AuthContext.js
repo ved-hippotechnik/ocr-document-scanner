@@ -56,9 +56,10 @@ export const AuthProvider = ({ children }) => {
               }
             }
           } catch (refreshError) {
-            // Refresh failed, logout user
+            // Refresh failed, logout user — preserve returnTo path (Q6)
             logout();
-            window.location.href = '/auth/login';
+            const returnTo = window.location.pathname;
+            window.location.href = `/auth/login${returnTo !== '/' ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`;
           }
         }
         
@@ -103,27 +104,45 @@ export const AuthProvider = ({ children }) => {
 
         if (refreshAt <= 0) return; // Already past refresh window
 
+        // Q4 — Dispatch session-expiring event 2 minutes before expiry
+        const warnAt = (exp - 120 - now) * 1000;
+        let warnTimeoutId;
+        if (warnAt > 0) {
+          warnTimeoutId = setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('session-expiring'));
+          }, warnAt);
+        }
+
         timeoutId = setTimeout(async () => {
-          try {
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) return;
+          if (warnTimeoutId) clearTimeout(warnTimeoutId);
+          const attemptRefresh = async (retries = 3, backoffMs = 5000) => {
+            for (let attempt = 1; attempt <= retries; attempt++) {
+              try {
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (!refreshToken) return false;
 
-            const response = await axios.post(`${API_URL}/api/auth/refresh`, {
-              refresh_token: refreshToken
-            });
+                const response = await axios.post(`${API_URL}/api/auth/refresh`, {
+                  refresh_token: refreshToken
+                });
 
-            if (response.data.access_token) {
-              localStorage.setItem('access_token', response.data.access_token);
-              if (response.data.refresh_token) {
-                localStorage.setItem('refresh_token', response.data.refresh_token);
+                if (response.data.access_token) {
+                  localStorage.setItem('access_token', response.data.access_token);
+                  if (response.data.refresh_token) {
+                    localStorage.setItem('refresh_token', response.data.refresh_token);
+                  }
+                  scheduleRefresh();
+                  return true;
+                }
+              } catch (refreshError) {
+                console.debug(`Proactive token refresh attempt ${attempt}/${retries} failed:`, refreshError.message);
+                if (attempt < retries) {
+                  await new Promise(r => setTimeout(r, backoffMs * attempt));
+                }
               }
-              // Reschedule for the new token
-              scheduleRefresh();
             }
-          } catch (refreshError) {
-            // Silently fail; the reactive axios interceptor handles 401s
-            console.debug('Proactive token refresh failed:', refreshError.message);
-          }
+            return false;
+          };
+          await attemptRefresh();
         }, refreshAt);
       } catch (decodeError) {
         // Malformed token; skip proactive refresh

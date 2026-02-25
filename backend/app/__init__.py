@@ -93,18 +93,29 @@ def create_app():
     app.config['OCR_DPI'] = int(os.environ.get('OCR_DPI', 300))
     app.config['OCR_LANGUAGES'] = os.environ.get('OCR_LANGUAGES', 'eng,ara,hin').split(',')
     
-    # CORS Configuration
+    # CORS Configuration — expose X-Request-ID and X-Error-ID for frontend debugging (Q6)
     cors_origins = os.environ.get('CORS_ORIGINS', '*')
     if cors_origins != '*':
         cors_origins = cors_origins.split(',')
-    CORS(app, origins=cors_origins)
+    CORS(app, origins=cors_origins, expose_headers=['X-Request-ID', 'X-Error-ID', 'X-Request-Duration', 'Retry-After'])
     
     # Ensure upload directory exists
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     
-    # Initialize database
+    # Initialize database with startup health check (Q1)
     from .database import init_db
     init_db(app)
+    try:
+        from .database import db
+        from sqlalchemy import text
+        with app.app_context():
+            db.session.execute(text('SELECT 1'))
+            db.session.rollback()
+        app.logger.info("Database connectivity verified at startup")
+    except Exception as db_err:
+        app.logger.error("DATABASE UNREACHABLE AT STARTUP: %s", db_err)
+        if flask_env == 'production':
+            raise RuntimeError(f"Cannot start: database unreachable — {db_err}") from db_err
     
     # Initialize JWT manager
     from .auth import jwt_manager
@@ -296,6 +307,14 @@ def create_app():
     app.register_blueprint(developer_bp)
     app.logger.info("✅ Developer portal registered")
 
+    # Register client metrics blueprint (Q7 — frontend metrics ingestion)
+    try:
+        from .client_metrics_routes import client_metrics_bp
+        app.register_blueprint(client_metrics_bp)
+        app.logger.info("✅ Client metrics endpoint registered")
+    except ImportError as e:
+        app.logger.warning("Could not import client metrics routes: %s", e)
+
     # API usage tracking for API-key-authenticated requests
     import time as _time
     from .database import db as _db, ApiUsageLog as _ApiUsageLog
@@ -434,30 +453,24 @@ def create_app():
         </html>
         ''', 200
     
-    # Health check endpoint
+    # Liveness probe — lightweight, always returns 200 if the process is alive
     @app.route('/health')
     def health_check():
-        """
-        Basic liveness probe.
-        ---
-        tags:
-          - Health
-        operationId: healthCheck
-        summary: Basic health check
-        description: >
-          Returns a simple JSON payload indicating the service is running.
-          Use this endpoint for load-balancer or container orchestration health checks.
-        responses:
-          200:
-            description: Service is healthy.
-            schema:
-              $ref: '#/definitions/BasicHealthResponse'
-            examples:
-              application/json:
-                status: healthy
-                service: ocr-document-scanner
-        """
+        """Basic liveness probe."""
         return {'status': 'healthy', 'service': 'ocr-document-scanner'}, 200
+
+    # Readiness / deep health check — probes all dependencies (Q1, Q7)
+    @app.route('/health/ready')
+    def readiness_check():
+        """Deep health check that verifies all dependencies."""
+        from .health import aggregate_health
+        overall, details = aggregate_health(app)
+        status_code = 200 if overall != 'unhealthy' else 503
+        return {
+            'status': overall,
+            'service': 'ocr-document-scanner',
+            'checks': details,
+        }, status_code
 
     # Processors info endpoint
     @app.route('/api/processors')

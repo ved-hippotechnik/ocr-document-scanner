@@ -8,7 +8,7 @@ import logging
 from flask import request, g
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,51 @@ rate_limit_exceeded = Counter(
     ['endpoint']
 )
 
+# Batch processing metrics (Q7)
+batch_jobs_active = Gauge(
+    'batch_jobs_active',
+    'Number of currently active batch jobs',
+)
+
+batch_jobs_total = Counter(
+    'batch_jobs_total',
+    'Total batch jobs submitted',
+    ['status'],
+)
+
+batch_documents_processed = Counter(
+    'batch_documents_processed_total',
+    'Total documents processed in batches',
+    ['status'],
+)
+
+batch_job_duration = Histogram(
+    'batch_job_duration_seconds',
+    'Duration of batch processing jobs',
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600],
+)
+
+# Vision API metrics (Q7)
+vision_api_duration = Histogram(
+    'vision_api_duration_seconds',
+    'Claude Vision API call duration',
+    ['operation'],
+    buckets=[0.5, 1, 2, 5, 10, 30],
+)
+
+vision_api_errors = Counter(
+    'vision_api_errors_total',
+    'Claude Vision API error count',
+    ['operation', 'error_type'],
+)
+
+# Redis reconnection metrics (Q7)
+redis_reconnection_attempts = Counter(
+    'redis_reconnection_attempts_total',
+    'Number of Redis reconnection attempts',
+    ['result'],
+)
+
 # System metrics
 cpu_usage = Gauge('system_cpu_usage_percent', 'CPU usage percentage')
 memory_usage = Gauge('system_memory_usage_percent', 'Memory usage percentage')
@@ -143,7 +188,7 @@ def setup_metrics(app):
     def metrics_summary():
         """JSON format metrics summary"""
         return {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'requests': {
                 'total': get_metric_value(request_count),
                 'active': get_metric_value(active_requests),
@@ -248,49 +293,108 @@ def get_metric_value(metric):
     """Get current value of a metric"""
     try:
         return metric._value.get()
-    except:
+    except Exception:
         return 0
+
 
 def get_error_rate():
-    """Calculate error rate"""
+    """
+    Calculate error rate by iterating over all collected label values.
+
+    Previous implementation hardcoded endpoint names — this version
+    dynamically discovers all recorded label combinations.
+    """
     try:
-        total = get_metric_value(request_count)
-        if total == 0:
+        total_requests = 0
+        error_requests = 0
+
+        # Iterate over all samples in the request_count metric family
+        for metric_family in request_count.collect():
+            for sample in metric_family.samples:
+                if sample.name.endswith('_total') or sample.name == metric_family.name:
+                    count = sample.value
+                    total_requests += count
+                    status = sample.labels.get('status', '200')
+                    if status.startswith('4') or status.startswith('5'):
+                        error_requests += count
+
+        if total_requests == 0:
             return 0
-        
-        # Count 4xx and 5xx responses
-        errors = sum([
-            request_count.labels(method=m, endpoint=e, status=s)._value.get()
-            for m in ['GET', 'POST', 'PUT', 'DELETE']
-            for e in ['main.scan_document', 'improved.scan_document_v3']
-            for s in ['400', '401', '403', '404', '500', '502', '503']
-        ])
-        
-        return round(errors / total * 100, 2)
-    except:
+
+        return round(error_requests / total_requests * 100, 2)
+    except Exception as e:
+        logger.error("Failed to compute error rate: %s", e)
         return 0
+
 
 def get_avg_response_time():
-    """Calculate average response time"""
+    """Calculate average response time in milliseconds."""
     try:
-        # This is a simplification - in production, use Prometheus query
-        return round(request_duration._sum.get() / request_duration._count.get() * 1000, 2)
-    except:
+        total_sum = 0
+        total_count = 0
+        for metric_family in request_duration.collect():
+            for sample in metric_family.samples:
+                if sample.name.endswith('_sum'):
+                    total_sum += sample.value
+                elif sample.name.endswith('_count'):
+                    total_count += sample.value
+
+        if total_count == 0:
+            return 0
+        return round(total_sum / total_count * 1000, 2)
+    except Exception as e:
+        logger.error("Failed to compute avg response time: %s", e)
         return 0
 
+
 def get_percentile_response_time(percentile):
-    """Calculate percentile response time"""
+    """
+    Estimate percentile response time from Histogram buckets.
+
+    Uses linear interpolation across histogram bucket boundaries —
+    the same algorithm Prometheus uses for histogram_quantile().
+    """
     try:
-        # This would require proper histogram calculation
-        # For now, return a placeholder
-        avg = get_avg_response_time()
-        if percentile == 0.95:
-            return avg * 1.5
-        elif percentile == 0.99:
-            return avg * 2
-        return avg
-    except:
+        buckets, total_count = _collect_histogram_buckets()
+        if total_count == 0 or not buckets:
+            return 0
+        return round(_interpolate_quantile(buckets, total_count, percentile) * 1000, 2)
+    except Exception as e:
+        logger.error("Failed to compute p%d response time: %s", int(percentile * 100), e)
         return 0
+
+
+def _collect_histogram_buckets():
+    """Collect cumulative bucket counts from the request_duration histogram."""
+    buckets = {}
+    total_count = 0
+    for metric_family in request_duration.collect():
+        for sample in metric_family.samples:
+            if sample.name.endswith('_bucket'):
+                le = sample.labels.get('le', '+Inf')
+                le_float = float('inf') if le == '+Inf' else float(le)
+                buckets[le_float] = buckets.get(le_float, 0) + sample.value
+            elif sample.name.endswith('_count'):
+                total_count += sample.value
+    return buckets, total_count
+
+
+def _interpolate_quantile(buckets, total_count, percentile):
+    """Linear interpolation within histogram buckets to estimate a quantile."""
+    target = percentile * total_count
+    prev_boundary = 0
+    prev_count = 0
+    for boundary in sorted(buckets.keys()):
+        current_count = buckets[boundary]
+        if current_count >= target:
+            if current_count == prev_count:
+                return boundary
+            fraction = (target - prev_count) / (current_count - prev_count)
+            return prev_boundary + fraction * (boundary - prev_boundary)
+        prev_boundary = boundary
+        prev_count = current_count
+    return get_avg_response_time() / 1000  # fallback in seconds
+
 
 def get_cache_hit_rate():
     """Calculate cache hit rate"""
@@ -298,35 +402,72 @@ def get_cache_hit_rate():
         hits = get_metric_value(cache_hits)
         misses = get_metric_value(cache_misses)
         total = hits + misses
-        
+
         if total == 0:
             return 0
-        
+
         return round(hits / total * 100, 2)
-    except:
+    except Exception as e:
+        logger.error("Failed to compute cache hit rate: %s", e)
         return 0
 
+
+_ALERT_LOG_FMT = "ALERT: %s"
+
+
+def _emit_alert(alerts, msg):
+    """Log a critical alert and append it to the alerts list."""
+    logger.critical(_ALERT_LOG_FMT, msg)
+    alerts.append(msg)
+
+
 def check_alerting_rules():
-    """Check system metrics and return alerts for critical conditions."""
+    """
+    Check system metrics and return alerts for critical conditions.
+
+    Thresholds:
+    - CPU > 90%
+    - Memory > 90%
+    - Error rate > 5%
+    - Average response time > 10s
+    - Active requests > 100
+    """
     alerts = []
 
     try:
         cpu = psutil.cpu_percent(interval=0.5)
         if cpu > 90:
-            alert_msg = f"CPU usage critically high: {cpu}%"
-            logger.critical("ALERT: %s", alert_msg)
-            alerts.append(alert_msg)
+            _emit_alert(alerts, f"CPU usage critically high: {cpu}%")
     except Exception as e:
-        logger.error(f"Failed to check CPU usage: {e}")
+        logger.error("Failed to check CPU usage: %s", e)
 
     try:
         mem = psutil.virtual_memory().percent
         if mem > 90:
-            alert_msg = f"Memory usage critically high: {mem}%"
-            logger.critical("ALERT: %s", alert_msg)
-            alerts.append(alert_msg)
+            _emit_alert(alerts, f"Memory usage critically high: {mem}%")
     except Exception as e:
-        logger.error(f"Failed to check memory usage: {e}")
+        logger.error("Failed to check memory usage: %s", e)
+
+    try:
+        error_rate = get_error_rate()
+        if error_rate > 5:
+            _emit_alert(alerts, f"Error rate critically high: {error_rate}%")
+    except Exception as e:
+        logger.error("Failed to check error rate: %s", e)
+
+    try:
+        avg_response = get_avg_response_time()
+        if avg_response > 10000:  # 10 seconds in ms
+            _emit_alert(alerts, f"Average response time critically high: {avg_response}ms")
+    except Exception as e:
+        logger.error("Failed to check response time: %s", e)
+
+    try:
+        active = get_metric_value(active_requests)
+        if active > 100:
+            _emit_alert(alerts, f"Active requests critically high: {active}")
+    except Exception as e:
+        logger.error("Failed to check active requests: %s", e)
 
     return alerts
 

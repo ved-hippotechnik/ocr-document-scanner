@@ -32,17 +32,52 @@ class RedisCache:
         self._connect()
     
     def _connect(self):
-        """Connect to Redis"""
+        """Connect to Redis with socket timeouts to prevent hanging (Q3)."""
         try:
-            self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
+            self.redis_client = redis.from_url(
+                self.redis_url,
+                decode_responses=True,
+                socket_timeout=5,
+                socket_connect_timeout=5,
+                retry_on_timeout=True,
+            )
             # Test connection
             self.redis_client.ping()
             self.is_available = True
-            logger.info("✅ Redis cache connected successfully")
+            self._last_reconnect_attempt = 0
+            logger.info("Redis cache connected successfully")
         except Exception as e:
-            logger.warning(f"⚠️  Redis cache not available: {e}")
+            logger.warning("Redis cache not available: %s", e)
             self.is_available = False
             self.redis_client = None
+
+    def _reconnect_if_needed(self):
+        """
+        Attempt reconnection if Redis was previously unavailable (Q1).
+
+        Uses a cooldown of 5 seconds between attempts to avoid
+        hammering a dead Redis instance.
+        """
+        if self.is_available:
+            return
+        import time as _time
+        now = _time.time()
+        if now - getattr(self, '_last_reconnect_attempt', 0) < 5:
+            return  # Cooldown not elapsed
+        self._last_reconnect_attempt = now
+        try:
+            from ..monitoring import redis_reconnection_attempts
+            redis_reconnection_attempts.labels(result='attempt').inc()
+        except Exception:
+            pass
+        logger.info("Attempting Redis reconnection...")
+        self._connect()
+        try:
+            from ..monitoring import redis_reconnection_attempts
+            result = 'success' if self.is_available else 'failure'
+            redis_reconnection_attempts.labels(result=result).inc()
+        except Exception:
+            pass
     
     def _generate_key(self, prefix: str, data: Any) -> str:
         """Generate cache key from data"""
@@ -60,6 +95,8 @@ class RedisCache:
     
     def get(self, key: str) -> Optional[Any]:
         """Get value from cache"""
+        if not self.is_available:
+            self._reconnect_if_needed()
         if not self.is_available:
             return None
         
@@ -82,6 +119,8 @@ class RedisCache:
     
     def set(self, key: str, value: Any, ttl: int = None) -> bool:
         """Set value in cache"""
+        if not self.is_available:
+            self._reconnect_if_needed()
         if not self.is_available:
             return False
         
@@ -127,17 +166,22 @@ class RedisCache:
             return False
     
     def clear_pattern(self, pattern: str) -> int:
-        """Clear keys matching pattern"""
+        """Clear keys matching pattern using SCAN (non-blocking, Q2)."""
         if not self.is_available:
             return 0
-        
+
         try:
-            keys = self.redis_client.keys(pattern)
-            if keys:
-                return self.redis_client.delete(*keys)
-            return 0
+            deleted = 0
+            cursor = 0
+            while True:
+                cursor, keys = self.redis_client.scan(cursor=cursor, match=pattern, count=100)
+                if keys:
+                    deleted += self.redis_client.delete(*keys)
+                if cursor == 0:
+                    break
+            return deleted
         except Exception as e:
-            logger.error(f"Error clearing cache pattern {pattern}: {e}")
+            logger.error("Error clearing cache pattern %s: %s", pattern, e)
             return 0
     
     def get_stats(self) -> Dict[str, Any]:
@@ -274,18 +318,34 @@ class CacheManager:
         return self.redis_cache.is_available
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get comprehensive cache statistics"""
+        """Get comprehensive cache statistics using SCAN (non-blocking, Q2)."""
         stats = self.redis_cache.get_stats()
-        
-        if stats.get('available'):
-            # Add cache-specific stats
+
+        if stats.get('available') and self.redis_cache.redis_client:
+            # Use SCAN instead of KEYS to avoid blocking Redis (Q2)
             stats.update({
-                'ocr_cache_keys': len(self.redis_cache.redis_client.keys("ocr:*")),
-                'document_cache_keys': len(self.redis_cache.redis_client.keys("doc:*")),
-                'session_cache_keys': len(self.redis_cache.redis_client.keys("session:*"))
+                'ocr_cache_keys': self._count_keys("ocr:*"),
+                'document_cache_keys': self._count_keys("doc:*"),
+                'session_cache_keys': self._count_keys("session:*"),
             })
-        
+
         return stats
+
+    def _count_keys(self, pattern: str) -> int:
+        """Count keys matching pattern using non-blocking SCAN."""
+        try:
+            count = 0
+            cursor = 0
+            while True:
+                cursor, keys = self.redis_cache.redis_client.scan(
+                    cursor=cursor, match=pattern, count=100
+                )
+                count += len(keys)
+                if cursor == 0:
+                    break
+            return count
+        except Exception:
+            return 0
     
     def clear_all(self) -> Dict[str, int]:
         """Clear all caches"""

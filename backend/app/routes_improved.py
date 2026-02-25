@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify, current_app, g
 import io
 import cv2
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from PIL import Image
 import pytesseract
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
@@ -18,6 +18,8 @@ from .rate_limiter import ratelimit_scan, ratelimit_medium, ratelimit_light
 from .validators import DocumentScanSchema, FileUploadValidator, InputSanitizer
 from .security.file_validator import FileValidator
 from .database import db, ScanHistory
+from .resilience import idempotent, backpressure, structured_error, TimeoutError as ResilienceTimeoutError
+from .monitoring import ocr_processing_time, ocr_timeout_count
 from marshmallow import ValidationError as MarshmallowValidationError
 
 improved = Blueprint('improved', __name__)
@@ -53,7 +55,7 @@ def measure_performance(f):
                 if isinstance(response, dict):
                     response['_performance'] = {
                         'duration_ms': round(duration, 2),
-                        'timestamp': datetime.utcnow().isoformat()
+                        'timestamp': datetime.now(timezone.utc).isoformat()
                     }
                 return response, status_code
             
@@ -89,6 +91,8 @@ def validate_request(f):
 @ratelimit_scan()
 @validate_request
 @measure_performance
+@idempotent()
+@backpressure(max_concurrent=20)
 def scan_document_v3():
     """
     Scan a single document image (v3 — recommended).
@@ -221,28 +225,19 @@ def scan_document_v3():
     try:
         # Step 1: Validate request has file
         if 'image' not in request.files:
-            return jsonify({
-                'error': 'Missing required file',
-                'code': 'FILE_REQUIRED',
-                'message': 'No image file provided in request'
-            }), 400
+            return structured_error('Missing required file', 'FILE_REQUIRED', 400)
         
         file = request.files['image']
         
         # Step 2: Validate filename
         if not file.filename:
-            return jsonify({
-                'error': 'Invalid file',
-                'code': 'INVALID_FILENAME',
-                'message': 'File has no filename'
-            }), 400
-        
+            return structured_error('Invalid file', 'INVALID_FILENAME', 400)
+
         if not file_upload_validator.validate_filename(file.filename):
-            return jsonify({
-                'error': 'Invalid filename',
-                'code': 'INVALID_FILENAME',
-                'message': f'Filename contains invalid characters or extension: {file.filename}'
-            }), 400
+            return structured_error(
+                'Invalid filename', 'INVALID_FILENAME', 400,
+                details=f'Filename contains invalid characters or extension: {file.filename}',
+            )
         
         # Step 3: Security validation (virus scan, content validation)
         is_valid, error_msg, file_metadata = file_security_validator.validate_file(file)
@@ -258,11 +253,7 @@ def scan_document_v3():
                     validation_result=error_msg
                 )
             
-            return jsonify({
-                'error': 'File validation failed',
-                'code': 'FILE_VALIDATION_FAILED',
-                'message': error_msg
-            }), 400
+            return structured_error('File validation failed', 'FILE_VALIDATION_FAILED', 400, details=error_msg)
         
         # Reset file pointer after validation
         file.seek(0)
@@ -271,58 +262,44 @@ def scan_document_v3():
         try:
             params = scan_schema.load(request.form.to_dict())
         except MarshmallowValidationError as e:
-            return jsonify({
-                'error': 'Invalid parameters',
-                'code': 'INVALID_PARAMETERS',
-                'message': 'Request parameters validation failed',
-                'details': e.messages
-            }), 400
+            return structured_error(
+                'Invalid parameters', 'INVALID_PARAMETERS', 400,
+                details=e.messages,
+            )
         
         # Step 5: Read and validate image data
         try:
             file_bytes = file.read()
             if not file_bytes:
-                return jsonify({
-                    'error': 'Empty file',
-                    'code': 'EMPTY_FILE',
-                    'message': 'Uploaded file is empty'
-                }), 400
+                return structured_error('Empty file', 'EMPTY_FILE', 400)
             
             # Decode image
             img_array = np.frombuffer(file_bytes, np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             
             if img is None:
-                return jsonify({
-                    'error': 'Invalid image data',
-                    'code': 'INVALID_IMAGE',
-                    'message': 'Unable to decode image data. File may be corrupted or not a valid image.'
-                }), 400
+                return structured_error(
+                    'Invalid image data', 'INVALID_IMAGE', 400,
+                    details='Unable to decode image data. File may be corrupted or not a valid image.',
+                )
             
             # Validate image dimensions
             height, width = img.shape[:2]
             if height < 100 or width < 100:
-                return jsonify({
-                    'error': 'Image too small',
-                    'code': 'IMAGE_TOO_SMALL',
-                    'message': f'Image dimensions {width}x{height} are too small. Minimum is 100x100.'
-                }), 400
-            
+                return structured_error(
+                    'Image too small', 'IMAGE_TOO_SMALL', 400,
+                    details=f'Image dimensions {width}x{height} are too small. Minimum is 100x100.',
+                )
+
             if height > 10000 or width > 10000:
-                return jsonify({
-                    'error': 'Image too large',
-                    'code': 'IMAGE_TOO_LARGE',
-                    'message': f'Image dimensions {width}x{height} are too large. Maximum is 10000x10000.'
-                }), 400
+                return structured_error(
+                    'Image too large', 'IMAGE_TOO_LARGE', 400,
+                    details=f'Image dimensions {width}x{height} are too large. Maximum is 10000x10000.',
+                )
             
         except Exception as e:
-            current_app.logger.error(f"Image processing error: {str(e)}")
-            return jsonify({
-                'error': 'Image processing failed',
-                'code': 'IMAGE_PROCESSING_ERROR',
-                'message': 'Failed to process image data',
-                'details': str(e)
-            }), 400
+            current_app.logger.error("Image processing error: %s (request_id=%s)", e, getattr(g, 'request_id', 'unknown'))
+            return structured_error('Image processing failed', 'IMAGE_PROCESSING_ERROR', 400, details=e)
         
         # Step 6: Perform OCR processing
         try:
@@ -334,27 +311,38 @@ def scan_document_v3():
             if params.get('quality_check', True):
                 quality_score = assess_image_quality(gray)
                 if quality_score < 0.3:
-                    return jsonify({
-                        'error': 'Poor image quality',
-                        'code': 'POOR_IMAGE_QUALITY',
-                        'message': f'Image quality score {quality_score:.2f} is too low. Please provide a clearer image.',
-                        'quality_score': quality_score
-                    }), 400
+                    return structured_error(
+                        'Poor image quality', 'POOR_IMAGE_QUALITY', 400,
+                        details=f'Image quality score {quality_score:.2f} is too low. Please provide a clearer image.',
+                    )
             
             # Enhance image if requested
             if params.get('enhance_image', False):
                 gray = enhance_image(gray)
             
-            # Perform OCR
-            initial_text = pytesseract.image_to_string(gray, lang=params.get('language', 'eng'), timeout=60)
-            
+            # Perform OCR with configurable timeout
+            ocr_timeout = current_app.config.get('OCR_TIMEOUT', 60)
+            ocr_start = time.time()
+            try:
+                initial_text = pytesseract.image_to_string(gray, lang=params.get('language', 'eng'), timeout=ocr_timeout)
+            except RuntimeError:
+                # pytesseract raises RuntimeError on timeout
+                ocr_timeout_count.labels(document_type='unknown').inc()
+                current_app.logger.error("OCR timed out after %ds (request_id=%s)", ocr_timeout, getattr(g, 'request_id', 'unknown'))
+                return structured_error(
+                    'OCR processing timed out', 'OCR_TIMEOUT', 504,
+                    details=f'Tesseract did not finish within {ocr_timeout}s',
+                    component='tesseract',
+                )
+            finally:
+                ocr_elapsed = time.time() - ocr_start
+                ocr_processing_time.labels(document_type='unknown', status='completed').observe(ocr_elapsed)
+
             if not initial_text or len(initial_text.strip()) < 10:
-                return jsonify({
-                    'error': 'No text detected',
-                    'code': 'NO_TEXT_DETECTED',
-                    'message': 'Unable to extract text from image. Image may be blank or text is not readable.',
-                    'quality_score': quality_score
-                }), 400
+                return structured_error(
+                    'No text detected', 'NO_TEXT_DETECTED', 400,
+                    details='Unable to extract text from image. Image may be blank or text is not readable.',
+                )
             
             # Detect document type
             doc_type = params.get('document_type', 'auto')
@@ -365,12 +353,10 @@ def scan_document_v3():
                 doc_display_name = doc_type
             
             if not processor:
-                return jsonify({
-                    'error': 'Document type not supported',
-                    'code': 'UNSUPPORTED_DOCUMENT',
-                    'message': f'Document type "{doc_type}" is not supported or could not be detected',
-                    'available_types': processor_registry.get_available_processors()
-                }), 400
+                return structured_error(
+                    'Document type not supported', 'UNSUPPORTED_DOCUMENT', 400,
+                    details=f'Document type "{doc_type}" is not supported or could not be detected',
+                )
             
             # Process with specific processor
             validate_vision = params.get('validate_with_vision', False)
@@ -399,64 +385,66 @@ def scan_document_v3():
                 status='completed'
             )
             db.session.add(scan_record)
-            db.session.commit()
-            
+            try:
+                db.session.commit()
+            except Exception as db_err:
+                db.session.rollback()
+                current_app.logger.error("DB commit failed for scan record: %s (request_id=%s)", db_err, getattr(g, 'request_id', 'unknown'))
+
+            # Update OCR timing metric with actual document type
+            ocr_processing_time.labels(document_type=doc_display_name, status='success').observe(
+                time.time() - g.request_start_time
+            )
+
             # Prepare response
             response = {
                 'success': True,
                 'document_type': doc_display_name,
                 'data': result,
                 'metadata': {
-                    'scan_id': scan_record.id,
+                    'scan_id': getattr(scan_record, 'id', None),
                     'quality_score': quality_score,
                     'processing_time': round(time.time() - g.request_start_time, 3),
                     'file_hash': file_metadata.get('hash'),
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 }
             }
-            
+
             return jsonify(response), 200
             
         except Exception as e:
-            current_app.logger.error(f"OCR processing error: {str(e)}\n{traceback.format_exc()}")
-            
+            current_app.logger.error("OCR processing error: %s (request_id=%s)\n%s", e, getattr(g, 'request_id', 'unknown'), traceback.format_exc())
+
             # Store failed attempt
-            scan_record = ScanHistory(
-                user_id=g.get('user_id'),
-                session_id=params.get('session_id', 'unknown'),
-                document_type='unknown',
-                error_message=str(e),
-                file_size=len(file_bytes),
-                filename=file.filename,
-                ip_address=g.get('client_ip', request.remote_addr),
-                user_agent=request.user_agent.string,
-                status='failed'
-            )
-            db.session.add(scan_record)
-            db.session.commit()
-            
-            return jsonify({
-                'error': 'Processing failed',
-                'code': 'PROCESSING_ERROR',
-                'message': 'Failed to process document',
-                'details': str(e) if current_app.debug else 'Internal processing error'
-            }), 500
+            try:
+                scan_record = ScanHistory(
+                    user_id=g.get('user_id'),
+                    session_id=params.get('session_id', 'unknown'),
+                    document_type='unknown',
+                    error_message=str(e),
+                    file_size=len(file_bytes),
+                    filename=file.filename,
+                    ip_address=g.get('client_ip', request.remote_addr),
+                    user_agent=request.user_agent.string,
+                    status='failed'
+                )
+                db.session.add(scan_record)
+                db.session.commit()
+            except Exception as db_err:
+                db.session.rollback()
+                current_app.logger.error("DB commit failed for failed scan record: %s", db_err)
+
+            return structured_error('Processing failed', 'PROCESSING_ERROR', 500, details=e, component='ocr')
             
     except RequestEntityTooLarge:
-        return jsonify({
-            'error': 'File too large',
-            'code': 'FILE_TOO_LARGE',
-            'message': f'File size exceeds maximum allowed size of {current_app.config.get("MAX_CONTENT_LENGTH", 16*1024*1024)} bytes'
-        }), 413
-        
+        return structured_error(
+            'File too large', 'FILE_TOO_LARGE', 413,
+            details=f'File size exceeds maximum allowed size of {current_app.config.get("MAX_CONTENT_LENGTH", 16*1024*1024)} bytes',
+        )
+
     except Exception as e:
-        current_app.logger.error(f"Unexpected error: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({
-            'error': 'Internal server error',
-            'code': 'INTERNAL_ERROR',
-            'message': 'An unexpected error occurred',
-            'details': str(e) if current_app.debug else None
-        }), 500
+        current_app.logger.error("Unexpected error (request_id=%s): %s\n%s", getattr(g, 'request_id', 'unknown'), e, traceback.format_exc())
+        return structured_error('Internal server error', 'INTERNAL_ERROR', 500, details=e)
 
 def assess_image_quality(image):
     """Assess image quality for OCR readability"""
@@ -537,7 +525,7 @@ def validate_extracted_data(data, doc_type):
             expiry = datetime.strptime(data['expiry_date'], '%d/%m/%Y')
             if expiry < datetime.now():
                 validation_result['warnings'].append('Document appears to be expired')
-        except:
+        except Exception:
             pass
     
     return validation_result
@@ -584,7 +572,7 @@ def health_check_v3():
     try:
         health_status = {
             'status': 'healthy',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'version': '3.0',
             'services': {}
         }
@@ -603,7 +591,7 @@ def health_check_v3():
         try:
             pytesseract.get_tesseract_version()
             health_status['services']['ocr_engine'] = 'healthy'
-        except:
+        except Exception:
             health_status['services']['ocr_engine'] = 'unhealthy'
             health_status['status'] = 'degraded'
         
@@ -637,7 +625,7 @@ def health_check_v3():
         return jsonify({
             'status': 'unhealthy',
             'error': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }), 503
 
 @improved.route('/api/v3/processors', methods=['GET'])
@@ -657,9 +645,9 @@ def get_processors_v3():
     response = {
         'processors': processors,
         'total': len(processors),
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
-    
+
     # Cache for 1 hour
     if hasattr(current_app, 'cache'):
         current_app.cache.set(cache_key, response, timeout=3600)

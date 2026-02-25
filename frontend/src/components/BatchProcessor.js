@@ -3,6 +3,8 @@ import { API_URL } from '../config';
 import { formatFileSize as formatFileSizeUtil } from '../utils/validation';
 import useFileValidation from '../hooks/useFileValidation';
 import { fileToBase64 } from '../hooks/useDocumentScanning';
+import { useProcessingGuard, withTimeout, generateErrorId } from '../utils/resilience';
+import { trackApiCall, trackError } from '../utils/metrics';
 import {
   Box,
   Button,
@@ -50,6 +52,7 @@ import { toast } from 'react-toastify';
 
 const BatchProcessor = () => {
   const { validateBatch } = useFileValidation();
+  const { guard, isProcessing: guardProcessing } = useProcessingGuard();
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedResults, setProcessedResults] = useState([]);
@@ -99,48 +102,72 @@ const BatchProcessor = () => {
     setShowResults(false);
   };
 
-  const processBatch = async () => {
+  const processBatch = guard(async () => {
     if (files.length === 0) {
       toast.warning('Please add files to process');
       return;
+    }
+
+    // Warn when the total payload is very large
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > 200 * 1024 * 1024) {
+      toast.warning('Large batch detected. Processing may take several minutes.');
     }
 
     setIsProcessing(true);
     setProgress(0);
     setProcessedResults([]);
 
+    const apiStart = Date.now();
+
     try {
-      // Convert files to base64
-      const imagePromises = files.map(async (fileItem) => {
-        const base64 = await fileToBase64(fileItem.file);
-        return {
-          id: fileItem.id,
-          image: base64
-        };
-      });
+      // Convert files to base64 in chunks of 5 to prevent memory pressure
+      const CHUNK_SIZE = 5;
+      const allResults = [];
+      for (let i = 0; i < files.length; i += CHUNK_SIZE) {
+        const chunk = files.slice(i, i + CHUNK_SIZE);
+        const results = await Promise.all(
+          chunk.map(async (fileItem) => {
+            const base64 = await fileToBase64(fileItem.file);
+            return { id: fileItem.id, image: base64 };
+          })
+        );
+        allResults.push(...results);
+      }
 
-      const images = await Promise.all(imagePromises);
+      const images = allResults;
 
-      // Process batch
-      const response = await fetch(`${API_URL}/api/v3/batch-scan`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Session-ID': `batch_${Date.now()}`
-        },
-        body: JSON.stringify({ images })
-      });
+      // Process batch with a hard 5-minute timeout and 1-minute interim warning
+      const response = await withTimeout(
+        fetch(`${API_URL}/api/v3/batch-scan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-ID': `batch_${Date.now()}`
+          },
+          body: JSON.stringify({ images })
+        }),
+        300000, // 5 min hard timeout
+        60000,  // 1 min warning threshold
+        () => toast.warning('Batch still processing, please wait...')
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      
+
       if (data.success) {
+        trackApiCall('/api/v3/batch-scan', Date.now() - apiStart, true, {
+          fileCount: files.length,
+          successful: data.successful_extractions,
+          total: data.total_processed
+        });
+
         setProcessedResults(data.results);
         setShowResults(true);
-        
+
         // Update file statuses
         const updatedFiles = files.map(fileItem => {
           const result = data.results.find(r => r.id === fileItem.id);
@@ -152,20 +179,26 @@ const BatchProcessor = () => {
           };
         });
         setFiles(updatedFiles);
-        
+
         toast.success(`Batch processing completed! ${data.successful_extractions}/${data.total_processed} successful`);
       } else {
         throw new Error(data.error || 'Batch processing failed');
       }
-      
-    } catch (error) {
-      console.error('Batch processing error:', error);
-      toast.error(`Batch processing failed: ${error.message}`);
+
+    } catch (err) {
+      trackApiCall('/api/v3/batch-scan', Date.now() - apiStart, false, {
+        fileCount: files.length
+      });
+
+      const errorId = generateErrorId();
+      console.error('Batch processing error:', err);
+      toast.error(`Batch processing failed (Ref: ${errorId})`);
+      trackError(errorId, 'BatchProcessor', err.message, { action: 'batch_process' });
     } finally {
       setIsProcessing(false);
       setProgress(100);
     }
-  };
+  });
 
   const formatFileSize = formatFileSizeUtil; // Use unified utility
 
@@ -282,7 +315,7 @@ const BatchProcessor = () => {
                 <Button
                   variant="contained"
                   onClick={processBatch}
-                  disabled={isProcessing}
+                  disabled={isProcessing || guardProcessing}
                   startIcon={<Analytics />}
                 >
                   Process Batch

@@ -50,6 +50,8 @@ import {
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { toast } from 'react-toastify';
+import { useProcessingGuard, useRequestDedup, useCircuitBreaker, withTimeout, generateErrorId } from '../utils/resilience';
+import { trackApiCall, trackError } from '../utils/metrics';
 
 const AIScanner = () => {
   const { validate: validateSingleFile } = useFileValidation();
@@ -65,6 +67,10 @@ const AIScanner = () => {
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [visionAvailable, setVisionAvailable] = useState(false);
   const wsCleanupRef = useRef(null);
+
+  const { guard, isProcessing: guardProcessing } = useProcessingGuard();
+  const dedup = useRequestDedup();
+  const circuitBreaker = useCircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 30000 });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -116,7 +122,7 @@ const AIScanner = () => {
     multiple: false
   });
 
-  const processDocument = async (file) => {
+  const processDocument = guard(async (file) => {
     setIsProcessing(true);
     setProgress(0);
     setResults(null);
@@ -124,16 +130,18 @@ const AIScanner = () => {
     setQualityAssessment(null);
     setRecommendations([]);
 
+    const dedupKey = `${file.name}-${file.size}`;
+
     try {
       // Convert file to base64
       const base64 = await fileToBase64(file);
-      
+
       // Generate session ID for progress tracking
       const sessionId = `scan_${Date.now()}`;
-      
+
       // Setup WebSocket for real-time updates
       setupWebSocket(sessionId);
-      
+
       // Create FormData for file upload
       const formData = new FormData();
       // Convert base64 to blob
@@ -150,55 +158,65 @@ const AIScanner = () => {
       if (visionEnabled) {
         formData.append('validate_with_vision', 'true');
       }
-      
-      // Call AI-enhanced scan endpoint with timeout
-      const scanController = new AbortController();
-      const scanTimeoutId = setTimeout(() => scanController.abort(), 120000);
 
-      try {
-        const response = await fetch(`${API_URL}/api/v3/scan`, {
-          method: 'POST',
-          headers: {
-            'X-Session-ID': sessionId
-          },
-          body: formData,
-          signal: scanController.signal
-        });
-        clearTimeout(scanTimeoutId);
+      const apiCallStart = Date.now();
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+      // Deduplicate by file identity, wrap in circuit breaker and hard timeout
+      const data = await dedup(dedupKey, () =>
+        circuitBreaker.call(() =>
+          withTimeout(
+            fetch(`${API_URL}/api/v3/scan`, {
+              method: 'POST',
+              headers: {
+                'X-Session-ID': sessionId
+              },
+              body: formData
+            }).then(async (response) => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              return response.json();
+            }),
+            120000,
+            30000,
+            () => toast.warning('Still processing, please wait...')
+          )
+        )
+      );
 
-        const data = await response.json();
+      trackApiCall('/api/v3/scan', Date.now() - apiCallStart, true, {
+        documentName: file.name,
+        fileSize: file.size
+      });
 
-        if (data.success) {
-          setResults(data.ocr_result);
-          setClassification(data.classification);
-          setQualityAssessment(data.quality_assessment);
-          setRecommendations(data.recommendations || []);
+      if (data.success) {
+        setResults(data.ocr_result);
+        setClassification(data.classification);
+        setQualityAssessment(data.quality_assessment);
+        setRecommendations(data.recommendations || []);
 
-          toast.success('Document processed successfully!');
-        } else {
-          throw new Error(data.error || 'Processing failed');
-        }
-      } catch (innerError) {
-        clearTimeout(scanTimeoutId);
-        throw innerError;
+        toast.success('Document processed successfully!');
+      } else {
+        throw new Error(data.error || 'Processing failed');
       }
 
     } catch (error) {
       console.error('Processing error:', error);
-      if (error.name === 'AbortError') {
-        toast.error('Document processing timed out. Please try again with a smaller file.');
+      const errorId = generateErrorId();
+      trackError(errorId, 'AIScanner', error.message, { action: 'scan', fileName: file.name });
+
+      if (error.message && error.message.startsWith('Request timed out')) {
+        toast.error(`Document processing timed out. Please try again with a smaller file. (Ref: ${errorId})`);
+      } else if (error.message && error.message.startsWith('Circuit breaker is open')) {
+        toast.error(`API appears unreachable. Please try again later. (Ref: ${errorId})`);
       } else {
-        toast.error(`Processing failed: ${error.message}`);
+        toast.error(`Processing failed: ${error.message} (Ref: ${errorId})`);
       }
     } finally {
       setIsProcessing(false);
       setProgress(100);
     }
-  };
+  });
 
   const setupWebSocket = (sessionId) => {
     // Clean up any previous session
@@ -271,6 +289,14 @@ const AIScanner = () => {
         Upload a document for automatic classification and intelligent OCR processing
       </Typography>
 
+      {/* Circuit Breaker Banner */}
+      {circuitBreaker.state !== 'closed' && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          API appears unreachable. Uploads are temporarily disabled.
+          {circuitBreaker.state === 'half_open' && ' Retrying...'}
+        </Alert>
+      )}
+
       {/* Upload Area */}
       <Card sx={{ mt: 3, mb: 3 }}>
         <CardContent>
@@ -282,12 +308,14 @@ const AIScanner = () => {
               borderRadius: 2,
               p: 4,
               textAlign: 'center',
-              cursor: 'pointer',
+              cursor: (guardProcessing || circuitBreaker.state === 'open') ? 'not-allowed' : 'pointer',
               bgcolor: isDragActive ? 'primary.50' : 'transparent',
-              transition: 'all 0.2s ease'
+              transition: 'all 0.2s ease',
+              opacity: (guardProcessing || circuitBreaker.state === 'open') ? 0.5 : 1,
+              pointerEvents: (guardProcessing || circuitBreaker.state === 'open') ? 'none' : 'auto'
             }}
           >
-            <input {...getInputProps()} />
+            <input {...getInputProps()} disabled={guardProcessing || circuitBreaker.state === 'open'} />
             <CloudUpload sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
             <Typography variant="h6" gutterBottom>
               {isDragActive ? 'Drop the document here' : 'Drag & drop a document or click to browse'}

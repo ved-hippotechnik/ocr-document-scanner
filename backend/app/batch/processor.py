@@ -7,8 +7,8 @@ import uuid
 import time
 import logging
 from typing import List, Dict, Optional, Callable
-from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from threading import Lock
 import json
 import asyncio
@@ -20,6 +20,7 @@ from ..websocket import notify_processing_progress, notify_processing_complete
 from ..ai.document_classifier import DocumentClassifier
 from ..processors import processor_registry
 from ..cache import get_cache
+from ..monitoring import batch_jobs_active, batch_jobs_total, batch_documents_processed, batch_job_duration
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +36,22 @@ class BatchJobManager:
     Manages batch processing jobs with queue management and progress tracking
     """
     
+    MAX_ACTIVE_JOBS = 50
+    MAX_DOCUMENT_TIMEOUT = 30  # seconds per document
+    MAX_BATCH_PAYLOAD_MB = 500
+
     def __init__(self, max_workers: int = 4):
         self.max_workers = max_workers
         self.active_jobs: Dict[str, 'BatchJob'] = {}
         self.job_lock = Lock()
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.ai_classifier = DocumentClassifier()
-        
+
         # Performance metrics
         self.total_jobs = 0
         self.successful_jobs = 0
         self.failed_jobs = 0
-        
+
         logger.info(f"Batch Job Manager initialized with {max_workers} workers")
     
     def create_job(self, user_id: int, documents: List[Dict], 
@@ -63,7 +68,20 @@ class BatchJobManager:
             Job ID for tracking
         """
         job_id = str(uuid.uuid4())
-        
+
+        # Reject if too many active jobs (Q2 — backpressure)
+        with self.job_lock:
+            active_count = len([j for j in self.active_jobs.values()
+                                if j.status in (BatchStatus.PENDING, BatchStatus.PROCESSING)])
+            if active_count >= self.MAX_ACTIVE_JOBS:
+                raise ValueError(f"Too many active jobs ({active_count}). Max is {self.MAX_ACTIVE_JOBS}.")
+
+        # Estimate payload size (Q2 — memory safety)
+        total_payload = sum(len(doc.get('image', '')) for doc in documents)
+        max_bytes = self.MAX_BATCH_PAYLOAD_MB * 1024 * 1024
+        if total_payload > max_bytes:
+            raise ValueError(f"Total payload size ({total_payload // (1024*1024)}MB) exceeds limit ({self.MAX_BATCH_PAYLOAD_MB}MB).")
+
         # Create database record
         try:
             job_record = BatchProcessingJob(
@@ -129,62 +147,40 @@ class BatchJobManager:
     def _process_job(self, job: 'BatchJob'):
         """
         Process a batch job
-        
-        Args:
-            job: BatchJob instance to process
         """
+        job_start = time.time()
+        batch_jobs_active.inc()
+        batch_jobs_total.labels(status='started').inc()
         try:
             job.start_processing()
-            
+
             # Update database status
             job.db_record.status = BatchStatus.PROCESSING.value
-            db.session.commit()
-            
+            try:
+                db.session.commit()
+            except Exception as db_err:
+                db.session.rollback()
+                logger.error("DB commit failed updating job %s to processing: %s", job.job_id, db_err)
+
             # Process documents
             for i, document in enumerate(job.documents):
-                try:
-                    # Check if job was cancelled
-                    if job.status == BatchStatus.CANCELLED:
-                        logger.info(f"Job {job.job_id} was cancelled")
-                        break
-                    
-                    # Process single document
-                    result = self._process_single_document(document, job)
-                    
-                    # Update job progress
-                    job.add_result(document['id'], result)
-                    progress = int(((i + 1) / len(job.documents)) * 100)
-                    job.update_progress(progress)
-                    
-                    # Notify progress
-                    notify_processing_progress(
-                        job.job_id,
-                        progress,
-                        f"Processing document {i + 1}/{len(job.documents)}"
-                    )
-                    
-                    # Update database
-                    job.db_record.processed_documents = i + 1
-                    if result.get('success', False):
-                        job.db_record.successful_extractions += 1
-                    db.session.commit()
-                    
-                except Exception as e:
-                    logger.error(f"Error processing document {document.get('id', 'unknown')}: {e}")
-                    job.add_result(document['id'], {
-                        'success': False,
-                        'error': str(e),
-                        'document_id': document['id']
-                    })
-            
+                if job.status == BatchStatus.CANCELLED:
+                    logger.info(f"Job {job.job_id} was cancelled")
+                    break
+                self._process_document_in_job(document, i, job)
+
             # Complete job
             job.complete()
-            
+
             # Update database
             job.db_record.status = BatchStatus.COMPLETED.value
-            job.db_record.completed_at = datetime.utcnow()
-            db.session.commit()
-            
+            job.db_record.completed_at = datetime.now(timezone.utc)
+            try:
+                db.session.commit()
+            except Exception as db_err:
+                db.session.rollback()
+                logger.error("DB commit failed completing job %s: %s", job.job_id, db_err)
+
             # Send completion notification
             notify_processing_complete(job.job_id, {
                 'type': 'batch_complete',
@@ -193,23 +189,28 @@ class BatchJobManager:
                 'successful': job.db_record.successful_extractions,
                 'failed': job.db_record.processed_documents - job.db_record.successful_extractions
             })
-            
+
             with self.job_lock:
                 self.successful_jobs += 1
-            
+
+            batch_jobs_total.labels(status='completed').inc()
             logger.info(f"Batch job {job.job_id} completed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error processing batch job {job.job_id}: {e}")
-            
+
             # Mark job as failed
             job.fail(str(e))
-            
+
             # Update database
             job.db_record.status = BatchStatus.FAILED.value
-            job.db_record.completed_at = datetime.utcnow()
-            db.session.commit()
-            
+            job.db_record.completed_at = datetime.now(timezone.utc)
+            try:
+                db.session.commit()
+            except Exception as db_err:
+                db.session.rollback()
+                logger.error("DB commit failed marking job %s as failed: %s", job.job_id, db_err)
+
             # Send failure notification
             from ..websocket import notify_processing_error
             notify_processing_error(job.job_id, {
@@ -217,10 +218,59 @@ class BatchJobManager:
                 'job_id': job.job_id,
                 'error': str(e)
             })
-            
+
             with self.job_lock:
                 self.failed_jobs += 1
+
+            batch_jobs_total.labels(status='failed').inc()
+
+        finally:
+            batch_jobs_active.dec()
+            batch_job_duration.observe(time.time() - job_start)
     
+    def _process_document_in_job(self, document: Dict, index: int, job: 'BatchJob'):
+        """Process one document inside a batch job, handling timeout and DB update."""
+        try:
+            doc_future = self.executor.submit(self._process_single_document, document, job)
+            try:
+                result = doc_future.result(timeout=self.MAX_DOCUMENT_TIMEOUT)
+            except FuturesTimeoutError:
+                logger.error("Document %s timed out after %ds in job %s",
+                             document.get('id', 'unknown'), self.MAX_DOCUMENT_TIMEOUT, job.job_id)
+                result = {
+                    'success': False,
+                    'error': f'Processing timed out after {self.MAX_DOCUMENT_TIMEOUT}s',
+                    'document_id': document.get('id', 'unknown')
+                }
+
+            job.add_result(document['id'], result)
+            progress = int(((index + 1) / len(job.documents)) * 100)
+            job.update_progress(progress)
+
+            doc_status = 'success' if result.get('success', False) else 'failure'
+            batch_documents_processed.labels(status=doc_status).inc()
+
+            notify_processing_progress(
+                job.job_id, progress,
+                f"Processing document {index + 1}/{len(job.documents)}"
+            )
+
+            job.db_record.processed_documents = index + 1
+            if result.get('success', False):
+                job.db_record.successful_extractions += 1
+            try:
+                db.session.commit()
+            except Exception as db_err:
+                db.session.rollback()
+                logger.error("DB commit failed for doc %d in job %s: %s", index, job.job_id, db_err)
+
+        except Exception as e:
+            logger.error("Error processing document %s: %s", document.get('id', 'unknown'), e)
+            job.add_result(document['id'], {
+                'success': False, 'error': str(e), 'document_id': document['id']
+            })
+            batch_documents_processed.labels(status='failure').inc()
+
     def _process_single_document(self, document: Dict, job: 'BatchJob') -> Dict:
         """
         Process a single document
@@ -403,7 +453,7 @@ class BatchJobManager:
             
             # Update database
             job.db_record.status = BatchStatus.CANCELLED.value
-            job.db_record.completed_at = datetime.utcnow()
+            job.db_record.completed_at = datetime.now(timezone.utc)
             db.session.commit()
             
             logger.info(f"Cancelled batch job {job_id}")
@@ -445,7 +495,7 @@ class BatchJobManager:
         Args:
             max_age_hours: Maximum age in hours before cleanup
         """
-        cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         
         with self.job_lock:
             jobs_to_remove = []
@@ -494,14 +544,14 @@ class BatchJob:
         self.error = None
         self.future = None
         
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
         self.started_at = None
         self.completed_at = None
     
     def start_processing(self):
         """Mark job as started"""
         self.status = BatchStatus.PROCESSING
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         logger.info(f"Started processing job {self.job_id}")
     
     def update_progress(self, progress: int):
@@ -515,7 +565,7 @@ class BatchJob:
     def complete(self):
         """Mark job as completed"""
         self.status = BatchStatus.COMPLETED
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
         self.progress = 100
         logger.info(f"Completed job {self.job_id}")
     
@@ -523,13 +573,13 @@ class BatchJob:
         """Mark job as failed"""
         self.status = BatchStatus.FAILED
         self.error = error
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
         logger.error(f"Failed job {self.job_id}: {error}")
     
     def cancel(self):
         """Cancel the job"""
         self.status = BatchStatus.CANCELLED
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
         logger.info(f"Cancelled job {self.job_id}")
 
 # Global batch manager instance

@@ -8,6 +8,8 @@ import {
   Container
 } from '@mui/material';
 import { Error as ErrorIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import { generateErrorId } from '../utils/resilience';
+import { trackError, flushMetrics } from '../utils/metrics';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -16,6 +18,7 @@ class ErrorBoundary extends React.Component {
       hasError: false,
       error: null,
       errorInfo: null,
+      errorId: null,
       retryCount: 0,
       maxRetries: 3
     };
@@ -27,14 +30,24 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log error details for debugging
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
-    
+    const errorId = generateErrorId();
+    const componentName = this.props.componentName || 'unknown';
+
+    console.error(`ErrorBoundary caught an error [${errorId}]:`, error, errorInfo);
+
     this.setState({
       error,
       errorInfo,
+      errorId,
       hasError: true
     });
+
+    // Track in metrics and flush immediately for critical errors (Q6, Q7)
+    trackError(errorId, componentName, error?.message, {
+      action: 'component_crash',
+      stack: errorInfo?.componentStack,
+    });
+    flushMetrics();
 
     // Report error to logging service if available
     if (window.reportError) {
@@ -62,7 +75,7 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-      const { retryCount, maxRetries, error } = this.state;
+      const { retryCount, maxRetries, error, errorId } = this.state;
       const canRetry = retryCount < maxRetries;
 
       return (
@@ -107,6 +120,11 @@ class ErrorBoundary extends React.Component {
               }}>
                 {error?.message || 'Unknown error occurred'}
               </Typography>
+              {errorId && (
+                <Typography variant="body2" sx={{ mt: 1, fontFamily: 'monospace', color: 'text.secondary' }}>
+                  Error Reference: {errorId} — include this when contacting support
+                </Typography>
+              )}
               {retryCount > 0 && (
                 <Typography variant="body2" sx={{ mt: 1, color: 'warning.main' }}>
                   Retry attempts: {retryCount}/{maxRetries}

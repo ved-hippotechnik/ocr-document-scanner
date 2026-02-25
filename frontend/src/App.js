@@ -4,6 +4,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import CircularProgress from '@mui/material/CircularProgress';
 import Box from '@mui/material/Box';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
@@ -11,6 +13,7 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OfflineStatus from './components/OfflineStatus';
 import UpdatePrompt from './components/UpdatePrompt';
 import { registerServiceWorker, requestNotificationPermission } from './utils/pwaUtils';
+import { initMetrics } from './utils/metrics';
 import './App.css';
 
 // Lazy-load heavy route components
@@ -188,20 +191,31 @@ const theme = createTheme({
 });
 
 function App() {
+  const [globalAlert, setGlobalAlert] = React.useState(null);
+
   useEffect(() => {
+    // Initialize client-side metrics collection (Q7)
+    initMetrics();
+
+    // Listen for session-expiring events from AuthContext (Q4)
+    const handleSessionExpiring = () => {
+      setGlobalAlert({ severity: 'warning', message: 'Your session is expiring soon. Please save your work.' });
+    };
+
+    // Listen for WebSocket failure events (Q1)
+    const handleWsFailed = () => {
+      setGlobalAlert({ severity: 'error', message: 'Real-time connection lost. Some features may be delayed.' });
+    };
+
+    window.addEventListener('session-expiring', handleSessionExpiring);
+    window.addEventListener('websocket-failed', handleWsFailed);
+
     // Initialize PWA features
     const initializePWA = async () => {
       try {
-        // Enable service worker for PWA functionality
         await registerServiceWorker();
-        console.log('PWA service worker enabled');
-        
-        // Request notification permission after a delay
         setTimeout(async () => {
-          const hasPermission = await requestNotificationPermission();
-          if (hasPermission) {
-            console.log('Notification permission granted');
-          }
+          await requestNotificationPermission();
         }, 5000);
       } catch (error) {
         console.error('PWA initialization failed:', error);
@@ -209,6 +223,11 @@ function App() {
     };
 
     initializePWA();
+
+    return () => {
+      window.removeEventListener('session-expiring', handleSessionExpiring);
+      window.removeEventListener('websocket-failed', handleWsFailed);
+    };
   }, []);
 
   return (
@@ -276,6 +295,20 @@ function App() {
             </ErrorBoundary>
           </div>
         </Router>
+
+        {/* Global alerts for session expiry and WebSocket failures */}
+        <Snackbar
+          open={Boolean(globalAlert)}
+          autoHideDuration={10000}
+          onClose={() => setGlobalAlert(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          {globalAlert && (
+            <Alert severity={globalAlert.severity} onClose={() => setGlobalAlert(null)} variant="filled">
+              {globalAlert.message}
+            </Alert>
+          )}
+        </Snackbar>
       </ThemeProvider>
     </ErrorBoundary>
   );

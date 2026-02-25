@@ -73,24 +73,24 @@ class MemoryCache:
         return f"{prefix}:{data_hash}"
     
     def get(self, key: str) -> Optional[Any]:
-        """Get value from cache"""
-        self.access_count += 1
-        
+        """Get value from cache (thread-safe counters, Q2)"""
         with self.lock:
+            self.access_count += 1
+
             if key not in self.cache:
                 return None
-            
+
             value, expiry = self.cache[key]
-            
+
             # Check if expired
             if expiry < time.time():
                 del self.cache[key]
                 return None
-            
+
             # Move to end (LRU)
             self.cache.move_to_end(key)
             self.hit_count += 1
-            
+
             return value
     
     def set(self, key: str, value: Any, ttl: int = None) -> bool:

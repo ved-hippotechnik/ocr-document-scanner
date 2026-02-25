@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { endpoints } from '../config';
 import { toast } from 'react-toastify';
+import { generateErrorId } from '../utils/resilience';
+import { trackError } from '../utils/metrics';
 import {
   Box,
   Grid,
@@ -34,6 +36,7 @@ import {
   Select,
   MenuItem
 } from '@mui/material';
+import Skeleton from '@mui/material/Skeleton';
 import {
   Psychology,
   Analytics,
@@ -64,6 +67,7 @@ const AIDashboard = () => {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const loadDashboardData = useCallback(async (signal) => {
     try {
@@ -96,9 +100,13 @@ const AIDashboard = () => {
         { date: '2024-01-21', accuracy: 0.93, processed: 167 }
       ]);
 
+      setLastUpdated(new Date());
+
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Error loading dashboard data:', error);
+        const errorId = generateErrorId();
+        trackError(errorId, 'AIDashboard', error.message, { action: 'fetch_dashboard' });
         setLoadError(error.message);
       }
     } finally {
@@ -111,6 +119,24 @@ const AIDashboard = () => {
     loadDashboardData(controller.signal);
     return () => controller.abort();
   }, [loadDashboardData]);
+
+  useEffect(() => {
+    if (!lastUpdated) return; // Don't start polling until initial load
+
+    const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    let intervalId;
+
+    const startPolling = () => {
+      intervalId = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadDashboardData();
+        }
+      }, REFRESH_INTERVAL);
+    };
+
+    startPolling();
+    return () => clearInterval(intervalId);
+  }, [lastUpdated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -169,8 +195,18 @@ const AIDashboard = () => {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <LinearProgress sx={{ width: '50%' }} />
+      <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+        <Skeleton variant="text" width={300} height={48} sx={{ mb: 2 }} />
+        <Skeleton variant="rectangular" width="100%" height={48} sx={{ mb: 3 }} />
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <Grid item xs={12} md={3} key={i}>
+              <Skeleton variant="rectangular" height={120} />
+            </Grid>
+          ))}
+        </Grid>
+        <Skeleton variant="rectangular" height={200} sx={{ mb: 3 }} />
+        <Skeleton variant="rectangular" height={200} />
       </Box>
     );
   }
@@ -197,6 +233,14 @@ const AIDashboard = () => {
       <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <SmartToy color="primary" />
         AI Classification Dashboard
+        {lastUpdated && (
+          <Chip
+            size="small"
+            label={`Updated ${lastUpdated.toLocaleTimeString()}`}
+            color={Date.now() - lastUpdated.getTime() > 10 * 60 * 1000 ? 'warning' : 'default'}
+            sx={{ ml: 1 }}
+          />
+        )}
       </Typography>
 
       <Tabs value={activeTab} onChange={handleTabChange} sx={{ mb: 3 }}>
