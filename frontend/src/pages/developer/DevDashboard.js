@@ -36,7 +36,7 @@ export default function DevDashboard() {
   if (loading && !summary) {
     return (
       <Box>
-        <Typography variant="h5" fontWeight={600} gutterBottom>Developer Overview</Typography>
+        <Typography variant="h4" fontWeight={600} gutterBottom>Developer Overview</Typography>
         <Grid container spacing={2}>
           {[1, 2, 3, 4].map((i) => (
             <Grid item xs={12} sm={6} md={3} key={i}><Skeleton variant="rounded" height={90} /></Grid>
@@ -48,7 +48,7 @@ export default function DevDashboard() {
 
   return (
     <Box>
-      <Typography variant="h5" fontWeight={600} gutterBottom>Developer Overview</Typography>
+      <Typography variant="h4" fontWeight={600} gutterBottom>Developer Overview</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Manage your API keys, monitor usage, and configure webhooks.
       </Typography>

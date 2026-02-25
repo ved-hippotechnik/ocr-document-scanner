@@ -3,6 +3,7 @@ import { endpoints } from '../config';
 import { toast } from 'react-toastify';
 import { generateErrorId } from '../utils/resilience';
 import { trackError } from '../utils/metrics';
+import { CHART_PALETTE } from '../utils/themeUtils';
 import {
   Box,
   Grid,
@@ -181,7 +182,7 @@ const AIDashboard = () => {
     }
   };
 
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+  const COLORS = CHART_PALETTE;
 
   const documentTypeData = useMemo(
     () =>
@@ -383,13 +384,13 @@ const AIDashboard = () => {
                   <Typography variant="h6" gutterBottom>
                     Classification Accuracy Over Time
                   </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={300} role="img" aria-label="Line chart showing classification accuracy over time">
                     <LineChart data={processingHistory}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" />
                       <YAxis />
                       <Tooltip />
-                      <Line type="monotone" dataKey="accuracy" stroke="#8884d8" strokeWidth={2} />
+                      <Line type="monotone" dataKey="accuracy" stroke={CHART_PALETTE[0]} strokeWidth={2} />
                     </LineChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -402,13 +403,13 @@ const AIDashboard = () => {
                   <Typography variant="h6" gutterBottom>
                     Processing Volume
                   </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={300} role="img" aria-label="Bar chart showing processing volume">
                     <BarChart data={processingHistory}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" />
                       <YAxis />
                       <Tooltip />
-                      <Bar dataKey="processed" fill="#82ca9d" />
+                      <Bar dataKey="processed" fill={CHART_PALETTE[1]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -474,7 +475,7 @@ const AIDashboard = () => {
                   <Typography variant="h6" gutterBottom>
                     Document Type Distribution
                   </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={300} role="img" aria-label="Pie chart showing document type distribution">
                     <PieChart>
                       <Pie
                         data={documentTypeData}
@@ -483,7 +484,7 @@ const AIDashboard = () => {
                         labelLine={false}
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                         outerRadius={80}
-                        fill="#8884d8"
+                        fill={CHART_PALETTE[0]}
                         dataKey="value"
                       >
                         {documentTypeData.map((entry, index) => (

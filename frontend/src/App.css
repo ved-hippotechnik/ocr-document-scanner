@@ -87,9 +87,27 @@ pre {
   background: #8E8E93;
 }
 
+/* Spinning animation (used by OfflineStatus sync icon) */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Responsive adjustments */
 @media (max-width: 600px) {
   .content {
     padding: 16px;
+  }
+}
+
+/* Accessibility: respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(0deg); }
+  }
+
+  .apple-card:hover {
+    transform: none;
   }
 }

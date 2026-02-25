@@ -105,7 +105,7 @@ export default function Webhooks() {
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" fontWeight={600}>Webhooks</Typography>
+        <Typography variant="h4" fontWeight={600}>Webhooks</Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
           Add Webhook
         </Button>

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
+import { alpha } from '@mui/material/styles';
+import { CHART_PALETTE_80 } from '../utils/themeUtils';
 import { 
   Box, 
   Button, 
@@ -460,13 +462,7 @@ const Dashboard = () => {
   }, []);
 
   // Pie chart colors (Apple-inspired palette)
-  const PIE_COLORS = [
-    'rgba(0, 122, 255, 0.8)',   // Apple Blue
-    'rgba(52, 199, 89, 0.8)',   // Apple Green
-    'rgba(255, 149, 0, 0.8)',   // Apple Orange
-    'rgba(90, 200, 250, 0.8)',  // Apple Light Blue
-    'rgba(255, 59, 48, 0.8)',   // Apple Red
-  ];
+  const PIE_COLORS = CHART_PALETTE_80;
 
   // Prepare chart data for document types (recharts format: array of objects)
   const documentTypeChartData = stats?.document_types
@@ -552,15 +548,14 @@ const Dashboard = () => {
         <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} className="dashboard-container">
           {/* Summary Cards */}
           <Grid item xs={12} sm={6} md={3}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 4 }, 
-                display: 'flex', 
-                flexDirection: 'column', 
-                height: { xs: 140, sm: 160, md: 180 }, 
-                position: 'relative', 
+              sx={{
+                p: { xs: 3, sm: 4 },
+                display: 'flex',
+                flexDirection: 'column',
+                height: { xs: 140, sm: 160, md: 180 },
+                position: 'relative',
                 overflow: 'hidden',
                 borderRadius: 3,
                 background: 'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 100%)',
@@ -571,11 +566,11 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography 
-                  variant="h6" 
-                  color="#007AFF" 
-                  gutterBottom 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  color="primary.main"
+                  gutterBottom
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
@@ -583,9 +578,9 @@ const Dashboard = () => {
                 >
                   Total Scanned
                 </Typography>
-                <Box 
-                  sx={{ 
-                    bgcolor: 'rgba(0, 122, 255, 0.1)', 
+                <Box
+                  sx={{
+                    bgcolor: alpha(theme.palette.primary.main, 0.1),
                     borderRadius: '50%',
                     p: 1,
                     display: 'flex',
@@ -593,26 +588,26 @@ const Dashboard = () => {
                     justifyContent: 'center',
                   }}
                 >
-                  <DescriptionIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: '#007AFF' }} />
+                  <DescriptionIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: 'primary.main' }} />
                 </Box>
               </Box>
-              <Typography 
-                variant="h3" 
-                component="div" 
-                sx={{ 
-                  mt: 2, 
-                  fontWeight: 700, 
+              <Typography
+                variant="h3"
+                component="div"
+                sx={{
+                  mt: 2,
+                  fontWeight: 700,
                   fontSize: { xs: '2rem', sm: '2.2rem', md: '2.7rem' },
                   letterSpacing: '-1px',
-                  color: '#000',
+                  color: 'text.primary',
                 }}
               >
                 {stats?.total_scanned || 0}
               </Typography>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  color: '#8E8E93',
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
                   fontWeight: 500,
                   mt: 0.5,
                 }}
@@ -622,15 +617,14 @@ const Dashboard = () => {
             </Paper>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 4 }, 
-                display: 'flex', 
-                flexDirection: 'column', 
-                height: { xs: 140, sm: 160, md: 180 }, 
-                position: 'relative', 
+              sx={{
+                p: { xs: 3, sm: 4 },
+                display: 'flex',
+                flexDirection: 'column',
+                height: { xs: 140, sm: 160, md: 180 },
+                position: 'relative',
                 overflow: 'hidden',
                 borderRadius: 3,
                 background: 'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 100%)',
@@ -641,11 +635,11 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography 
-                  variant="h6" 
-                  color="#5AC8FA" 
-                  gutterBottom 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  color="info.main"
+                  gutterBottom
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
@@ -653,9 +647,9 @@ const Dashboard = () => {
                 >
                   Passports
                 </Typography>
-                <Box 
-                  sx={{ 
-                    bgcolor: 'rgba(90, 200, 250, 0.1)', 
+                <Box
+                  sx={{
+                    bgcolor: alpha(theme.palette.info.main, 0.1),
                     borderRadius: '50%',
                     p: 1,
                     display: 'flex',
@@ -663,26 +657,26 @@ const Dashboard = () => {
                     justifyContent: 'center',
                   }}
                 >
-                  <PassportIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: '#5AC8FA' }} />
+                  <PassportIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: 'info.main' }} />
                 </Box>
               </Box>
-              <Typography 
-                variant="h3" 
-                component="div" 
-                sx={{ 
-                  mt: 2, 
-                  fontWeight: 700, 
+              <Typography
+                variant="h3"
+                component="div"
+                sx={{
+                  mt: 2,
+                  fontWeight: 700,
                   fontSize: { xs: '2rem', sm: '2.2rem', md: '2.7rem' },
                   letterSpacing: '-1px',
-                  color: '#000',
+                  color: 'text.primary',
                 }}
               >
                 {stats?.document_types?.passport || 0}
               </Typography>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  color: '#8E8E93',
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
                   fontWeight: 500,
                   mt: 0.5,
                 }}
@@ -692,15 +686,14 @@ const Dashboard = () => {
             </Paper>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 4 }, 
-                display: 'flex', 
-                flexDirection: 'column', 
-                height: { xs: 140, sm: 160, md: 180 }, 
-                position: 'relative', 
+              sx={{
+                p: { xs: 3, sm: 4 },
+                display: 'flex',
+                flexDirection: 'column',
+                height: { xs: 140, sm: 160, md: 180 },
+                position: 'relative',
                 overflow: 'hidden',
                 borderRadius: 3,
                 background: 'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 100%)',
@@ -711,11 +704,11 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography 
-                  variant="h6" 
-                  color="#34C759" 
-                  gutterBottom 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  color="success.main"
+                  gutterBottom
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
@@ -723,9 +716,9 @@ const Dashboard = () => {
                 >
                   ID Cards
                 </Typography>
-                <Box 
-                  sx={{ 
-                    bgcolor: 'rgba(52, 199, 89, 0.1)', 
+                <Box
+                  sx={{
+                    bgcolor: alpha(theme.palette.success.main, 0.1),
                     borderRadius: '50%',
                     p: 1,
                     display: 'flex',
@@ -733,26 +726,26 @@ const Dashboard = () => {
                     justifyContent: 'center',
                   }}
                 >
-                  <BadgeIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: '#34C759' }} />
+                  <BadgeIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: 'success.main' }} />
                 </Box>
               </Box>
-              <Typography 
-                variant="h3" 
-                component="div" 
-                sx={{ 
-                  mt: 2, 
-                  fontWeight: 700, 
+              <Typography
+                variant="h3"
+                component="div"
+                sx={{
+                  mt: 2,
+                  fontWeight: 700,
                   fontSize: { xs: '2rem', sm: '2.2rem', md: '2.7rem' },
                   letterSpacing: '-1px',
-                  color: '#000',
+                  color: 'text.primary',
                 }}
               >
                 {stats?.document_types?.id_card || 0}
               </Typography>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  color: '#8E8E93',
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
                   fontWeight: 500,
                   mt: 0.5,
                 }}
@@ -762,15 +755,14 @@ const Dashboard = () => {
             </Paper>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 4 }, 
-                display: 'flex', 
-                flexDirection: 'column', 
-                height: { xs: 140, sm: 160, md: 180 }, 
-                position: 'relative', 
+              sx={{
+                p: { xs: 3, sm: 4 },
+                display: 'flex',
+                flexDirection: 'column',
+                height: { xs: 140, sm: 160, md: 180 },
+                position: 'relative',
                 overflow: 'hidden',
                 borderRadius: 3,
                 background: 'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 100%)',
@@ -781,11 +773,11 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography 
-                  variant="h6" 
-                  color="#FF9500" 
-                  gutterBottom 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  color="warning.main"
+                  gutterBottom
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
@@ -793,9 +785,9 @@ const Dashboard = () => {
                 >
                   Countries
                 </Typography>
-                <Box 
-                  sx={{ 
-                    bgcolor: 'rgba(255, 149, 0, 0.1)', 
+                <Box
+                  sx={{
+                    bgcolor: alpha(theme.palette.warning.main, 0.1),
                     borderRadius: '50%',
                     p: 1,
                     display: 'flex',
@@ -803,26 +795,26 @@ const Dashboard = () => {
                     justifyContent: 'center',
                   }}
                 >
-                  <PublicIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: '#FF9500' }} />
+                  <PublicIcon sx={{ fontSize: { xs: 24, sm: 28, md: 32 }, color: 'warning.main' }} />
                 </Box>
               </Box>
-              <Typography 
-                variant="h3" 
-                component="div" 
-                sx={{ 
-                  mt: 2, 
-                  fontWeight: 700, 
+              <Typography
+                variant="h3"
+                component="div"
+                sx={{
+                  mt: 2,
+                  fontWeight: 700,
                   fontSize: { xs: '2rem', sm: '2.2rem', md: '2.7rem' },
                   letterSpacing: '-1px',
-                  color: '#000',
+                  color: 'text.primary',
                 }}
               >
                 {stats?.nationalities ? Object.keys(stats.nationalities).length : 0}
               </Typography>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  color: '#8E8E93',
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
                   fontWeight: 500,
                   mt: 0.5,
                 }}
@@ -834,13 +826,12 @@ const Dashboard = () => {
 
           {/* Charts */}
           <Grid item xs={12} sm={6} md={6}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 3.5, md: 4 }, 
-                display: 'flex', 
-                flexDirection: 'column', 
+              sx={{
+                p: { xs: 3, sm: 3.5, md: 4 },
+                display: 'flex',
+                flexDirection: 'column',
                 height: { xs: 320, sm: 370, md: 400 },
                 position: 'relative',
                 overflow: 'hidden',
@@ -853,23 +844,23 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
-                    color: '#000',
+                    color: 'text.primary',
                   }}
                 >
                   Document Types
                 </Typography>
-                <Chip 
-                  label={`${stats?.document_types ? Object.keys(stats.document_types).length : 0} types`} 
-                  size="small" 
+                <Chip
+                  label={`${stats?.document_types ? Object.keys(stats.document_types).length : 0} types`}
+                  size="small"
                   sx={{
-                    bgcolor: 'rgba(0, 122, 255, 0.1)',
-                    color: '#007AFF',
+                    bgcolor: alpha(theme.palette.primary.main, 0.1),
+                    color: 'primary.main',
                     fontWeight: 500,
                     border: 'none',
                     borderRadius: '12px',
@@ -884,7 +875,7 @@ const Dashboard = () => {
               <Divider sx={{ mb: 3, opacity: 0.6 }} />
               <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                 {stats?.total_scanned > 0 ? (
-                  <ResponsiveContainer width="100%" height={240}>
+                  <ResponsiveContainer width="100%" height={240} role="img" aria-label="Document types pie chart">
                     <PieChart>
                       <Pie
                         data={documentTypeChartData}
@@ -913,7 +904,7 @@ const Dashboard = () => {
                         layout="horizontal"
                         verticalAlign="bottom"
                         align="center"
-                        wrapperStyle={{ fontSize: '12px', fontWeight: 500, color: '#000' }}
+                        wrapperStyle={{ fontSize: '12px', fontWeight: 500, color: theme.palette.text.primary }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -929,13 +920,12 @@ const Dashboard = () => {
             </Paper>
           </Grid>
           <Grid item xs={12} sm={6} md={6}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 3.5, md: 4 }, 
-                display: 'flex', 
-                flexDirection: 'column', 
+              sx={{
+                p: { xs: 3, sm: 3.5, md: 4 },
+                display: 'flex',
+                flexDirection: 'column',
                 height: { xs: 320, sm: 370, md: 400 },
                 position: 'relative',
                 overflow: 'hidden',
@@ -948,23 +938,23 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
-                    color: '#000',
+                    color: 'text.primary',
                   }}
                 >
                   Top Nationalities
                 </Typography>
-                <Chip 
-                  label={`${stats?.nationalities ? Object.keys(stats.nationalities).length : 0} countries`} 
-                  size="small" 
+                <Chip
+                  label={`${stats?.nationalities ? Object.keys(stats.nationalities).length : 0} countries`}
+                  size="small"
                   sx={{
-                    bgcolor: 'rgba(255, 149, 0, 0.1)',
-                    color: '#FF9500',
+                    bgcolor: alpha(theme.palette.warning.main, 0.1),
+                    color: 'warning.main',
                     fontWeight: 500,
                     border: 'none',
                     borderRadius: '12px',
@@ -979,7 +969,7 @@ const Dashboard = () => {
               <Divider sx={{ mb: 3, opacity: 0.6 }} />
               <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                 {stats?.nationalities && Object.keys(stats.nationalities).length > 0 ? (
-                  <ResponsiveContainer width="100%" height={240}>
+                  <ResponsiveContainer width="100%" height={240} role="img" aria-label="Top nationalities bar chart">
                     <BarChart
                       layout="vertical"
                       data={nationalitiesChartData}
@@ -989,7 +979,7 @@ const Dashboard = () => {
                       <XAxis
                         type="number"
                         allowDecimals={false}
-                        tick={{ fill: '#8E8E93', fontSize: 12, fontWeight: 500 }}
+                        tick={{ fill: theme.palette.text.secondary, fontSize: 12, fontWeight: 500 }}
                         axisLine={false}
                         tickLine={false}
                       />
@@ -997,7 +987,7 @@ const Dashboard = () => {
                         type="category"
                         dataKey="name"
                         width={90}
-                        tick={{ fill: '#8E8E93', fontSize: 12, fontWeight: 500 }}
+                        tick={{ fill: theme.palette.text.secondary, fontSize: 12, fontWeight: 500 }}
                         axisLine={false}
                         tickLine={false}
                       />
@@ -1006,11 +996,11 @@ const Dashboard = () => {
                           const percentage = ((value / (stats?.total_scanned || 1)) * 100).toFixed(1);
                           return [`${value} documents (${percentage}%)`];
                         }}
-                        cursor={{ fill: 'rgba(255, 149, 0, 0.05)' }}
+                        cursor={{ fill: alpha(theme.palette.warning.main, 0.05) }}
                       />
                       <Bar
                         dataKey="value"
-                        fill="rgba(255, 149, 0, 0.8)"
+                        fill={CHART_PALETTE_80[2]}
                         radius={[0, 6, 6, 0]}
                         maxBarSize={28}
                       />
@@ -1030,11 +1020,10 @@ const Dashboard = () => {
 
           {/* Document List */}
           <Grid item xs={12}>
-            <Paper 
+            <Paper
               elevation={0}
-              className="apple-card"
-              sx={{ 
-                p: { xs: 3, sm: 3.5, md: 4 }, 
+              sx={{
+                p: { xs: 3, sm: 3.5, md: 4 },
                 overflow: 'hidden',
                 borderRadius: 3,
                 background: 'linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 100%)',
@@ -1045,45 +1034,45 @@ const Dashboard = () => {
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
+                <Typography
+                  variant="h6"
+                  sx={{
                     fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
                     fontWeight: 600,
                     letterSpacing: '-0.5px',
-                    color: '#000',
+                    color: 'text.primary',
                   }}
                 >
                   Recent Documents
                 </Typography>
                 <Box>
-                  <Button 
-                    startIcon={<RefreshIcon />} 
-                    size="small" 
+                  <Button
+                    startIcon={<RefreshIcon />}
+                    size="small"
                     onClick={fetchDocuments}
-                    sx={{ 
-                      mr: 1.5, 
-                      color: '#007AFF',
+                    sx={{
+                      mr: 1.5,
+                      color: 'primary.main',
                       borderRadius: '12px',
                       px: 2,
                       py: 0.75,
                       textTransform: 'none',
                       fontWeight: 500,
                       '&:hover': {
-                        backgroundColor: 'rgba(0, 122, 255, 0.1)',
+                        backgroundColor: alpha(theme.palette.primary.main, 0.1),
                       },
                     }}
                   >
                     Refresh
                   </Button>
-                  <Button 
-                    startIcon={<PrintIcon />} 
-                    size="small" 
+                  <Button
+                    startIcon={<PrintIcon />}
+                    size="small"
                     onClick={handlePrintTable}
                     disabled={documents.length === 0}
                     sx={{
-                      bgcolor: '#007AFF',
-                      color: '#fff',
+                      bgcolor: 'primary.main',
+                      color: 'primary.contrastText',
                       borderRadius: '12px',
                       px: 2,
                       py: 0.75,
@@ -1091,11 +1080,7 @@ const Dashboard = () => {
                       fontWeight: 500,
                       border: 'none',
                       '&:hover': {
-                        bgcolor: 'rgba(0, 122, 255, 0.9)',
-                      },
-                      '&:disabled': {
-                        bgcolor: 'rgba(0, 0, 0, 0.1)',
-                        color: 'rgba(0, 0, 0, 0.3)',
+                        bgcolor: alpha(theme.palette.primary.main, 0.9),
                       },
                     }}
                   >
@@ -1106,34 +1091,34 @@ const Dashboard = () => {
               <Divider sx={{ mb: 3, opacity: 0.6 }} />
               {documentsLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4, flexDirection: 'column' }}>
-                  <CircularProgress size={40} sx={{ color: '#007AFF', mb: 2 }} />
-                  <Typography variant="body2" sx={{ color: '#8E8E93', fontWeight: 500 }}>
+                  <CircularProgress size={40} sx={{ color: 'primary.main', mb: 2 }} />
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
                     Loading documents...
                   </Typography>
                 </Box>
               ) : error ? (
-                <Alert 
-                  severity="error" 
-                  sx={{ 
-                    mb: 2, 
+                <Alert
+                  severity="error"
+                  sx={{
+                    mb: 2,
                     borderRadius: 2,
-                    bgcolor: 'rgba(255, 59, 48, 0.1)',
-                    color: '#FF3B30',
+                    bgcolor: alpha(theme.palette.error.main, 0.1),
+                    color: 'error.main',
                     '& .MuiAlert-icon': {
-                      color: '#FF3B30',
+                      color: 'error.main',
                     },
                   }}
                 >
                   {error}
-                  <Button 
-                    size="small" 
-                    onClick={fetchDocuments} 
-                    sx={{ 
-                      ml: 2, 
-                      color: '#FF3B30',
+                  <Button
+                    size="small"
+                    onClick={fetchDocuments}
+                    sx={{
+                      ml: 2,
+                      color: 'error.main',
                       fontWeight: 500,
                       '&:hover': {
-                        bgcolor: 'rgba(255, 59, 48, 0.1)',
+                        bgcolor: alpha(theme.palette.error.main, 0.1),
                       },
                     }}
                   >
@@ -1141,15 +1126,15 @@ const Dashboard = () => {
                   </Button>
                 </Alert>
               ) : documents.length === 0 ? (
-                <Alert 
-                  severity="info" 
-                  sx={{ 
-                    mb: 2, 
+                <Alert
+                  severity="info"
+                  sx={{
+                    mb: 2,
                     borderRadius: 2,
-                    bgcolor: 'rgba(0, 122, 255, 0.1)',
-                    color: '#007AFF',
+                    bgcolor: alpha(theme.palette.primary.main, 0.1),
+                    color: 'primary.main',
                     '& .MuiAlert-icon': {
-                      color: '#007AFF',
+                      color: 'primary.main',
                     },
                   }}
                 >
@@ -1188,7 +1173,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1203,7 +1188,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1217,7 +1202,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1232,7 +1217,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1247,7 +1232,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1262,7 +1247,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1277,7 +1262,7 @@ const Dashboard = () => {
                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            color: '#000',
+                            color: 'text.primary',
                             borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
                             letterSpacing: '-0.3px',
                           }}
@@ -1301,7 +1286,7 @@ const Dashboard = () => {
                             sx={{ 
                               p: { xs: 1.5, sm: 2 },
                               borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-                              color: '#1C1C1E',
+                              color: 'text.primary',
                             }}
                           >
                             {index + 1}
@@ -1311,7 +1296,7 @@ const Dashboard = () => {
                               p: { xs: 1.5, sm: 2 }, 
                               display: { xs: 'none', sm: 'table-cell' },
                               borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-                              color: '#1C1C1E',
+                              color: 'text.primary',
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1326,22 +1311,22 @@ const Dashboard = () => {
                                 })}
                               </Typography>
                               {index === 0 && (
-                                <Chip 
-                                  label="Latest" 
-                                  size="small" 
-                                  sx={{ 
-                                    ml: 1, 
-                                    height: { xs: 18, sm: 22 }, 
-                                    bgcolor: 'rgba(0, 122, 255, 0.1)',
-                                    color: '#007AFF',
+                                <Chip
+                                  label="Latest"
+                                  size="small"
+                                  sx={{
+                                    ml: 1,
+                                    height: { xs: 18, sm: 22 },
+                                    bgcolor: alpha(theme.palette.primary.main, 0.1),
+                                    color: 'primary.main',
                                     fontWeight: 500,
                                     border: 'none',
                                     borderRadius: '10px',
-                                    '& .MuiChip-label': { 
+                                    '& .MuiChip-label': {
                                       px: 1,
-                                      fontSize: { xs: '0.6rem', sm: '0.7rem' } 
-                                    } 
-                                  }} 
+                                      fontSize: { xs: '0.6rem', sm: '0.7rem' }
+                                    }
+                                  }}
                                 />
                               )}
                             </Box>
@@ -1350,14 +1335,14 @@ const Dashboard = () => {
                             sx={{ 
                               p: { xs: 1.5, sm: 2 },
                               borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-                              color: '#1C1C1E',
+                              color: 'text.primary',
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                               {document.document_type === 'passport' ? (
-                                <Box 
-                                  sx={{ 
-                                    bgcolor: 'rgba(0, 122, 255, 0.1)',
+                                <Box
+                                  sx={{
+                                    bgcolor: alpha(theme.palette.primary.main, 0.1),
                                     borderRadius: '50%',
                                     p: 0.75,
                                     mr: 1.5,
@@ -1366,12 +1351,12 @@ const Dashboard = () => {
                                     justifyContent: 'center',
                                   }}
                                 >
-                                  <PassportIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: '#007AFF' }} />
+                                  <PassportIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: 'primary.main' }} />
                                 </Box>
                               ) : document.document_type === 'us_green_card' ? (
-                                <Box 
-                                  sx={{ 
-                                    bgcolor: 'rgba(52, 199, 89, 0.1)',
+                                <Box
+                                  sx={{
+                                    bgcolor: alpha(theme.palette.success.main, 0.1),
                                     borderRadius: '50%',
                                     p: 0.75,
                                     mr: 1.5,
@@ -1380,12 +1365,12 @@ const Dashboard = () => {
                                     justifyContent: 'center',
                                   }}
                                 >
-                                  <CreditCardIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: '#34C759' }} />
+                                  <CreditCardIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: 'success.main' }} />
                                 </Box>
                               ) : (document.document_type === 'id_card' || document.document_type === 'ID Card') ? (
-                                <Box 
-                                  sx={{ 
-                                    bgcolor: 'rgba(52, 199, 89, 0.1)',
+                                <Box
+                                  sx={{
+                                    bgcolor: alpha(theme.palette.success.main, 0.1),
                                     borderRadius: '50%',
                                     p: 0.75,
                                     mr: 1.5,
@@ -1394,12 +1379,12 @@ const Dashboard = () => {
                                     justifyContent: 'center',
                                   }}
                                 >
-                                  <BadgeIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: '#34C759' }} />
+                                  <BadgeIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: 'success.main' }} />
                                 </Box>
                               ) : (
-                                <Box 
-                                  sx={{ 
-                                    bgcolor: 'rgba(255, 149, 0, 0.1)',
+                                <Box
+                                  sx={{
+                                    bgcolor: alpha(theme.palette.warning.main, 0.1),
                                     borderRadius: '50%',
                                     p: 0.75,
                                     mr: 1.5,
@@ -1408,7 +1393,7 @@ const Dashboard = () => {
                                     justifyContent: 'center',
                                   }}
                                 >
-                                  <DescriptionIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: '#FF9500' }} />
+                                  <DescriptionIcon sx={{ fontSize: { xs: '0.9rem', sm: '1.1rem' }, color: 'warning.main' }} />
                                 </Box>
                               )}
                               <Typography 
@@ -1427,7 +1412,7 @@ const Dashboard = () => {
                               p: { xs: 1.5, sm: 2 }, 
                               display: { xs: 'none', lg: 'table-cell' },
                               borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-                              color: '#1C1C1E',
+                              color: 'text.primary',
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -1452,7 +1437,7 @@ const Dashboard = () => {
                               p: { xs: 1.5, sm: 2 }, 
                               display: { xs: 'none', lg: 'table-cell' },
                               borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-                              color: '#1C1C1E',
+                              color: 'text.primary',
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -1478,7 +1463,7 @@ const Dashboard = () => {
                               p: { xs: 1.5, sm: 2 }, 
                               display: { xs: 'none', md: 'table-cell' },
                               borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-                              color: '#1C1C1E',
+                              color: 'text.primary',
                             }}
                           >
                             <Chip 
@@ -1487,7 +1472,7 @@ const Dashboard = () => {
                               sx={{ 
                                 height: { xs: 22, sm: 26 }, 
                                 bgcolor: 'rgba(0, 0, 0, 0.05)',
-                                color: '#1C1C1E',
+                                color: 'text.primary',
                                 fontWeight: 500,
                                 border: 'none',
                                 borderRadius: '12px',
@@ -1506,15 +1491,15 @@ const Dashboard = () => {
                             }}
                           >
                             <Tooltip title="View document details">
-                              <IconButton 
-                                size="small" 
+                              <IconButton
+                                size="small"
                                 onClick={() => handleOpenDocumentDetails(document)}
-                                sx={{ 
+                                sx={{
                                   p: { xs: 0.75, sm: 1 },
-                                  color: '#007AFF',
-                                  bgcolor: 'rgba(0, 122, 255, 0.1)',
+                                  color: 'primary.main',
+                                  bgcolor: alpha(theme.palette.primary.main, 0.1),
                                   '&:hover': {
-                                    bgcolor: 'rgba(0, 122, 255, 0.2)',
+                                    bgcolor: alpha(theme.palette.primary.main, 0.2),
                                   },
                                 }}
                               >

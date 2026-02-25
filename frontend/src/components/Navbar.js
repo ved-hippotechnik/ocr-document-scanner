@@ -24,7 +24,8 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Divider from '@mui/material/Divider';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { styled, useTheme } from '@mui/material/styles';
+import { styled, useTheme, alpha } from '@mui/material/styles';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useScreenSize } from '../utils/responsive';
 
 // Apple-style navigation button
@@ -33,9 +34,9 @@ const AppleNavButton = styled(Button)(({ theme, active }) => ({
   padding: '6px 16px',
   margin: '0 6px',
   color: active ? theme.palette.primary.main : theme.palette.text.primary,
-  backgroundColor: active ? 'rgba(0, 122, 255, 0.1)' : 'transparent',
+  backgroundColor: active ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
   '&:hover': {
-    backgroundColor: active ? 'rgba(0, 122, 255, 0.15)' : 'rgba(0, 0, 0, 0.04)',
+    backgroundColor: active ? alpha(theme.palette.primary.main, 0.15) : alpha(theme.palette.text.primary, 0.04),
   },
   fontWeight: 500,
   fontSize: '0.9rem',
@@ -100,11 +101,11 @@ const Navbar = () => {
               to="/"
               aria-label="Go to home"
               sx={{
-                color: '#007AFF',
+                color: 'primary.main',
                 mr: 1.5,
                 p: { xs: 1, sm: 1.5 },
                 '&:hover': {
-                  backgroundColor: 'rgba(0, 122, 255, 0.1)',
+                  backgroundColor: 'action.hover',
                 },
               }}
             >
@@ -117,7 +118,7 @@ const Navbar = () => {
                 fontWeight: 600,
                 letterSpacing: '-0.5px',
                 fontSize: { xs: '1.1rem', sm: '1.25rem' },
-                color: '#000',
+                color: 'text.primary',
               }}
             >
               Document Scanner
@@ -184,7 +185,7 @@ const Navbar = () => {
               component={RouterLink}
               to="/admin"
               active={location.pathname === '/admin' ? 1 : 0}
-              startIcon={<DashboardIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
+              startIcon={<AdminPanelSettingsIcon sx={{ fontSize: { xs: 16, sm: 18, md: 20 } }} />}
               sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' } }}
             >
               Admin
@@ -315,7 +316,7 @@ const Navbar = () => {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <ListItemIcon>
-                  <DashboardIcon color={location.pathname === '/admin' ? 'primary' : 'inherit'} />
+                  <AdminPanelSettingsIcon color={location.pathname === '/admin' ? 'primary' : 'inherit'} />
                 </ListItemIcon>
                 <ListItemText primary="Admin" />
               </ListItemButton>

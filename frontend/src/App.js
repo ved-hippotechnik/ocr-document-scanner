@@ -28,6 +28,8 @@ const ApiKeysPage = React.lazy(() => import('./pages/developer/ApiKeys'));
 const UsageDashboardPage = React.lazy(() => import('./pages/developer/UsageDashboard'));
 const WebhooksPage = React.lazy(() => import('./pages/developer/Webhooks'));
 const DocumentationPage = React.lazy(() => import('./pages/developer/Documentation'));
+const LoginForm = React.lazy(() => import('./components/Auth/LoginForm'));
+const RegisterForm = React.lazy(() => import('./components/Auth/RegisterForm'));
 
 function RouteLoader() {
   return (
@@ -283,6 +285,16 @@ function App() {
                     <Route path="webhooks" element={<WebhooksPage />} />
                     <Route path="docs" element={<DocumentationPage />} />
                   </Route>
+                  <Route path="/auth/login" element={
+                    <ErrorBoundary fallbackMessage="Login form failed to load">
+                      <LoginForm />
+                    </ErrorBoundary>
+                  } />
+                  <Route path="/auth/register" element={
+                    <ErrorBoundary fallbackMessage="Registration form failed to load">
+                      <RegisterForm />
+                    </ErrorBoundary>
+                  } />
                 </Routes>
               </Suspense>
             </div>

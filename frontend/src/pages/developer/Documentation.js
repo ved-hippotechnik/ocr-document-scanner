@@ -107,7 +107,7 @@ export default function Documentation() {
 
   return (
     <Box>
-      <Typography variant="h5" fontWeight={600} gutterBottom>API Documentation</Typography>
+      <Typography variant="h4" fontWeight={600} gutterBottom>API Documentation</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Integrate the OCR Document Scanner into your application using the examples below.
       </Typography>

@@ -26,10 +26,13 @@ import {
   Storage,
   Memory,
   Speed,
+  Engineering,
   People,
   Description,
   Refresh,
+  AdminPanelSettings,
 } from '@mui/icons-material';
+import Skeleton from '@mui/material/Skeleton';
 
 const StatusChip = ({ ok, label }) => (
   <Chip
@@ -76,10 +79,17 @@ const AdminDashboard = () => {
   if (loading && !health) {
     return (
       <Box sx={{ p: 3 }}>
-        <LinearProgress />
-        <Typography sx={{ mt: 2, textAlign: 'center' }}>
-          Loading admin dashboard...
-        </Typography>
+        <Skeleton variant="text" width={300} height={48} sx={{ mb: 1 }} />
+        <Skeleton variant="text" width={400} height={24} sx={{ mb: 3 }} />
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <Grid item xs={12} sm={6} md={3} key={i}>
+              <Skeleton variant="rectangular" height={100} sx={{ borderRadius: 3 }} />
+            </Grid>
+          ))}
+        </Grid>
+        <Skeleton variant="rectangular" height={120} sx={{ mb: 3, borderRadius: 3 }} />
+        <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 3 }} />
       </Box>
     );
   }
@@ -87,7 +97,14 @@ const AdminDashboard = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-        <Typography variant="h4">Admin Dashboard</Typography>
+        <Box>
+          <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AdminPanelSettings /> Admin Dashboard
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary">
+            System health, service status, and scan volume overview
+          </Typography>
+        </Box>
         <Button
           variant="outlined"
           startIcon={<Refresh />}
@@ -146,7 +163,7 @@ const AdminDashboard = () => {
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Speed color="primary" />
+                <Engineering color="primary" />
                 <Typography variant="subtitle2">Celery</Typography>
               </Box>
               <StatusChip ok={health?.components?.celery !== false} />
