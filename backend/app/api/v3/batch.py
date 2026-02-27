@@ -38,11 +38,13 @@ from app.batch.processor import batch_manager, BatchStatus
 from app.database import db, BatchProcessingJob
 from app.rate_limiter import ratelimit_batch, ratelimit_light, ratelimit_medium
 from app.validation import validate_json_input
+from .responses import api_success, api_error
 
 logger = logging.getLogger(__name__)
 
 v3_batch_bp = Blueprint("v3_batch", __name__, url_prefix="/api/v3/batch")
 
+_USER_NOT_FOUND = "User not found"
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -81,38 +83,38 @@ def submit_batch():
     """
     try:
         if not request.is_json:
-            return jsonify({"error": "JSON data required"}), 400
+            return api_error("JSON data required", "JSON_REQUIRED")
 
         data = request.get_json()
 
         validation_result = validate_json_input(data)
         if not validation_result["valid"]:
-            return jsonify({"error": validation_result["message"]}), 400
+            return api_error(validation_result["message"], "VALIDATION_ERROR")
 
         if "documents" not in data:
-            return jsonify({"error": "Documents array required"}), 400
+            return api_error("Documents array required", "DOCUMENTS_REQUIRED")
 
         documents = data["documents"]
 
         if not isinstance(documents, list) or len(documents) == 0:
-            return jsonify({"error": "Documents array must contain at least one document"}), 400
+            return api_error("Documents array must contain at least one document", "DOCUMENTS_EMPTY")
 
         if len(documents) > 100:
-            return jsonify({"error": "Maximum 100 documents per batch"}), 400
+            return api_error("Maximum 100 documents per batch", "BATCH_TOO_LARGE")
 
         for i, doc in enumerate(documents):
             if not isinstance(doc, dict):
-                return jsonify({"error": f"Document {i} must be an object"}), 400
+                return api_error(f"Document {i} must be an object", "INVALID_DOCUMENT")
             if "id" not in doc or "image" not in doc:
-                return jsonify({"error": f"Document {i} must have id and image fields"}), 400
+                return api_error(f"Document {i} must have id and image fields", "MISSING_FIELDS")
             if not isinstance(doc["id"], str) or not doc["id"].strip():
-                return jsonify({"error": f"Document {i} id must be a non-empty string"}), 400
+                return api_error(f"Document {i} id must be a non-empty string", "INVALID_ID")
             if not isinstance(doc["image"], str) or not doc["image"].strip():
-                return jsonify({"error": f"Document {i} image must be a non-empty string"}), 400
+                return api_error(f"Document {i} image must be a non-empty string", "INVALID_IMAGE")
 
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         config = data.get("config", {})
         job_id = batch_manager.create_job(
@@ -123,17 +125,16 @@ def submit_batch():
 
         success = batch_manager.submit_job(job_id)
         if not success:
-            return jsonify({"success": False, "error": "Failed to submit job for processing"}), 500
+            return api_error("Failed to submit job for processing", "SUBMIT_FAILED", 500)
 
-        return jsonify({
-            "success": True,
+        return api_success({
             "job_id": job_id,
             "message": f"Batch job submitted successfully with {len(documents)} documents",
         })
 
     except Exception as exc:
         logger.error("Error submitting batch job: %s", exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/status/<job_id>", methods=["GET"])
@@ -142,24 +143,24 @@ def get_job_status(job_id: str):
     """Get status of a batch processing job."""
     try:
         if not job_id or not job_id.strip():
-            return jsonify({"error": "Job ID required"}), 400
+            return api_error("Job ID required", "JOB_ID_REQUIRED")
 
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         status = batch_manager.get_job_status(job_id)
         if not status:
-            return jsonify({"error": "Job not found"}), 404
+            return api_error("Job not found", "JOB_NOT_FOUND", 404)
 
         if hasattr(status, "user_id") and status.user_id != current_user.id:
-            return jsonify({"error": "Access denied"}), 403
+            return api_error("Access denied", "FORBIDDEN", 403)
 
-        return jsonify({"success": True, "job_status": status})
+        return api_success({"job_status": status})
 
     except Exception as exc:
         logger.error("Error getting job status for %s: %s", job_id, exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/results/<job_id>", methods=["GET"])
@@ -168,21 +169,21 @@ def get_job_results(job_id: str):
     """Get results of a completed batch processing job."""
     try:
         if not job_id or not job_id.strip():
-            return jsonify({"error": "Job ID required"}), 400
+            return api_error("Job ID required", "JOB_ID_REQUIRED")
 
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         results = batch_manager.get_job_results(job_id)
         if not results:
-            return jsonify({"error": "Job not found or not completed"}), 404
+            return api_error("Job not found or not completed", "JOB_NOT_FOUND", 404)
 
-        return jsonify({"success": True, "job_results": results})
+        return api_success({"job_results": results})
 
     except Exception as exc:
         logger.error("Error getting job results for %s: %s", job_id, exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/cancel/<job_id>", methods=["POST"])
@@ -191,31 +192,28 @@ def cancel_job(job_id: str):
     """Cancel a batch processing job."""
     try:
         if not job_id or not job_id.strip():
-            return jsonify({"error": "Job ID required"}), 400
+            return api_error("Job ID required", "JOB_ID_REQUIRED")
 
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         job_record = BatchProcessingJob.query.filter_by(job_id=job_id).first()
         if not job_record:
-            return jsonify({"error": "Job not found"}), 404
+            return api_error("Job not found", "JOB_NOT_FOUND", 404)
 
         if job_record.user_id != current_user.id:
-            return jsonify({"error": "Access denied"}), 403
+            return api_error("Access denied", "FORBIDDEN", 403)
 
         success = batch_manager.cancel_job(job_id)
         if not success:
-            return jsonify({
-                "success": False,
-                "error": "Failed to cancel job — may already be completed",
-            }), 400
+            return api_error("Failed to cancel job — may already be completed", "CANCEL_FAILED")
 
-        return jsonify({"success": True, "message": "Job cancelled successfully"})
+        return api_success({"message": "Job cancelled successfully"})
 
     except Exception as exc:
         logger.error("Error cancelling job %s: %s", job_id, exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/jobs", methods=["GET"])
@@ -225,7 +223,7 @@ def list_user_jobs():
     try:
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         page = request.args.get("page", 1, type=int)
         per_page = min(request.args.get("per_page", 10, type=int), 100)
@@ -238,8 +236,7 @@ def list_user_jobs():
 
         jobs = query.paginate(page=page, per_page=per_page, error_out=False)
 
-        return jsonify({
-            "success": True,
+        return api_success({
             "jobs": [job.to_dict() for job in jobs.items],
             "pagination": {
                 "page": page,
@@ -253,7 +250,7 @@ def list_user_jobs():
 
     except Exception as exc:
         logger.error("Error listing jobs: %s", exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/stats", methods=["GET"])
@@ -263,7 +260,7 @@ def get_batch_stats():
     try:
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         user_stats = db.session.query(
             db.func.count(BatchProcessingJob.id).label("total_jobs"),
@@ -282,8 +279,7 @@ def get_batch_stats():
 
         manager_stats = batch_manager.get_manager_stats()
 
-        return jsonify({
-            "success": True,
+        return api_success({
             "user_stats": {
                 "total_jobs": user_stats.total_jobs or 0,
                 "completed_jobs": user_stats.completed_jobs or 0,
@@ -302,7 +298,7 @@ def get_batch_stats():
 
     except Exception as exc:
         logger.error("Error getting batch stats: %s", exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/cleanup", methods=["POST"])
@@ -315,24 +311,23 @@ def cleanup_jobs():
     try:
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         if not current_user.is_admin():
-            return jsonify({"error": "Admin access required"}), 403
+            return api_error("Admin access required", "ADMIN_REQUIRED", 403)
 
         max_age_hours = (
             request.json.get("max_age_hours", 24) if request.is_json else 24
         )
         batch_manager.cleanup_completed_jobs(max_age_hours)
 
-        return jsonify({
-            "success": True,
+        return api_success({
             "message": f"Cleaned up jobs older than {max_age_hours} hours",
         })
 
     except Exception as exc:
         logger.error("Error cleaning up jobs: %s", exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)
 
 
 @v3_batch_bp.route("/health", methods=["GET"])
@@ -344,20 +339,14 @@ def batch_health():
             stats["active_jobs"] < stats["max_workers"] * 2
             and stats["success_rate"] > 0.8
         )
-        return jsonify({
-            "success": True,
+        return api_success({
             "service": "Batch Processing",
             "status": "healthy" if is_healthy else "degraded",
             "stats": stats,
         })
     except Exception as exc:
         logger.error("Batch service health check failed: %s", exc)
-        return jsonify({
-            "success": False,
-            "service": "Batch Processing",
-            "status": "unhealthy",
-            "error": str(exc),
-        }), 500
+        return api_error(str(exc), "HEALTH_CHECK_FAILED", 500)
 
 
 @v3_batch_bp.route("/export/<job_id>", methods=["GET"])
@@ -366,19 +355,19 @@ def export_job_results(job_id: str):
     """Export batch job results as JSON, CSV, or Excel."""
     try:
         if not job_id or not job_id.strip():
-            return jsonify({"error": "Job ID required"}), 400
+            return api_error("Job ID required", "JOB_ID_REQUIRED")
 
         current_user = get_current_user()
         if not current_user:
-            return jsonify({"error": "User not found"}), 401
+            return api_error(_USER_NOT_FOUND, "AUTH_REQUIRED", 401)
 
         export_format = request.args.get("format", "json").lower()
         if export_format not in ("json", "csv", "excel"):
-            return jsonify({"error": "Unsupported format. Use json, csv, or excel"}), 400
+            return api_error("Unsupported format. Use json, csv, or excel", "INVALID_FORMAT")
 
         results = batch_manager.get_job_results(job_id)
         if not results:
-            return jsonify({"error": "Job not found or not completed"}), 404
+            return api_error("Job not found or not completed", "JOB_NOT_FOUND", 404)
 
         if export_format == "json":
             return Response(
@@ -413,7 +402,7 @@ def export_job_results(job_id: str):
         try:
             import pandas as pd
         except ImportError:
-            return jsonify({"error": "pandas is required for Excel export"}), 500
+            return api_error("pandas is required for Excel export", "MISSING_DEPENDENCY", 500)
 
         data_rows = [
             {
@@ -440,4 +429,4 @@ def export_job_results(job_id: str):
 
     except Exception as exc:
         logger.error("Error exporting job results for %s: %s", job_id, exc)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return api_error(str(exc), "INTERNAL_ERROR", 500)

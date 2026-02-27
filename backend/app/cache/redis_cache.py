@@ -184,6 +184,10 @@ class RedisCache:
             logger.error("Error clearing cache pattern %s: %s", pattern, e)
             return 0
     
+    def clear_expired(self) -> int:
+        """No-op for Redis — TTL-based expiry is handled automatically by Redis."""
+        return 0
+
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
         if not self.is_available:

@@ -95,7 +95,7 @@ export const subscribeToPushNotifications = async () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
         },
         body: JSON.stringify(subscription)
       });
@@ -124,7 +124,7 @@ export const unsubscribeFromPushNotifications = async () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
           },
           body: JSON.stringify({ endpoint: subscription.endpoint })
         });

@@ -161,6 +161,15 @@ class MemoryCache:
                 'hit_count': self.hit_count
             }
     
+    def clear_expired(self) -> int:
+        """Remove all expired entries and return the count removed."""
+        with self.lock:
+            current_time = time.time()
+            expired_keys = [k for k, (_, expiry) in self.cache.items() if expiry < current_time]
+            for key in expired_keys:
+                del self.cache[key]
+            return len(expired_keys)
+
     def clear_all(self) -> int:
         """Clear all cache entries"""
         with self.lock:

@@ -34,11 +34,11 @@ class AnalyticsEngine:
         """Get comprehensive dashboard data"""
         try:
             # Check cache first
-            cache_key = {'dashboard_data': True, 'days': days}
-            cached_data = cache.get_document_result(cache_key)
-            
+            cache_key = f"dashboard_data:{days}"
+            cached_data = cache.get(cache_key)
+
             if cached_data:
-                return cached_data['result']
+                return cached_data
             
             # Calculate date range
             end_date = datetime.now(timezone.utc)
@@ -58,7 +58,7 @@ class AnalyticsEngine:
             }
             
             # Cache the result
-            cache.set_document_result(cache_key, dashboard_data, self.cache_ttl)
+            cache.set(cache_key, dashboard_data, self.cache_ttl)
             
             return dashboard_data
             

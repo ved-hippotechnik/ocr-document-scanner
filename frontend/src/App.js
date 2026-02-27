@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import ErrorBoundary from './components/ErrorBoundary';
+import { AuthProvider } from './contexts/AuthContext';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
@@ -237,6 +238,7 @@ function App() {
     <ErrorBoundary fallbackMessage="The Document Scanner application encountered an error">
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <AuthProvider>
         <Router>
           <div className="App">
             <ErrorBoundary fallbackMessage="Navigation system encountered an error">
@@ -316,6 +318,7 @@ function App() {
             </ErrorBoundary>
           </div>
         </Router>
+        </AuthProvider>
 
         {/* Global alerts for session expiry and WebSocket failures */}
         <Snackbar

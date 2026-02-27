@@ -31,9 +31,10 @@ def create_app():
     # ── Configuration ─────────────────────────────────────────────────────
     load_config(app, flask_env)
 
-    cors_origins = os.environ.get('CORS_ORIGINS', '*')
+    cors_default = '*' if flask_env != 'production' else 'http://localhost:3000'
+    cors_origins = os.environ.get('CORS_ORIGINS', cors_default)
     if cors_origins != '*':
-        cors_origins = cors_origins.split(',')
+        cors_origins = [o.strip() for o in cors_origins.split(',')]
     CORS(app, origins=cors_origins,
          expose_headers=['X-Request-ID', 'X-Error-ID', 'X-Request-Duration', 'Retry-After'])
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -69,8 +70,9 @@ def create_app():
         except Exception as e:
             app.logger.warning(f"Flasgger initialization failed (non-critical): {e}")
 
-    # ── Health probes ─────────────────────────────────────────────────────
+    # ── Health probes & global error handlers ──────────────────────────────
     _register_health_routes(app)
+    _register_error_handlers(app)
 
     return app, socketio
 
@@ -118,6 +120,23 @@ def _init_core_services(app, flask_env):
             socketio = None
     else:
         socketio = None
+
+
+def _register_error_handlers(app):
+    """Normalize unhandled errors to the unified v3 JSON envelope."""
+    from .api.v3.responses import api_error
+
+    @app.errorhandler(404)
+    def not_found(_e):
+        return api_error('Resource not found', 'NOT_FOUND', 404)
+
+    @app.errorhandler(405)
+    def method_not_allowed(_e):
+        return api_error('Method not allowed', 'METHOD_NOT_ALLOWED', 405)
+
+    @app.errorhandler(500)
+    def internal_error(_e):
+        return api_error('Internal server error', 'INTERNAL_ERROR', 500)
 
 
 def _register_health_routes(app):

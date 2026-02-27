@@ -88,82 +88,53 @@ def get_user_identifier() -> str:
     return get_remote_address()
 
 # Decorators for common rate limits
+# NOTE: These apply limiter.limit() at decoration time so Flask-Limiter can
+# properly track per-route state. The previous implementation called
+# limiter.limit() inside the request handler which created a new decorated
+# callable on every request, silently bypassing rate limiting.
+
+def _apply_limit(limit_string):
+    """Apply a rate limit at decoration time via the global limiter."""
+    def decorator(f):
+        if limiter:
+            return limiter.limit(limit_string)(f)
+        return f
+    return decorator
+
+
 def ratelimit_light(per_minute: int = 30):
     """Light rate limit for non-intensive endpoints"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit(f"{per_minute} per minute")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit(f"{per_minute} per minute")
+
 
 def ratelimit_medium(per_minute: int = 10):
     """Medium rate limit for standard endpoints"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit(f"{per_minute} per minute")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit(f"{per_minute} per minute")
+
 
 def ratelimit_heavy(per_minute: int = 5):
     """Heavy rate limit for resource-intensive endpoints"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit(f"{per_minute} per minute")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit(f"{per_minute} per minute")
+
 
 def ratelimit_scan():
     """Special rate limit for scan endpoints"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit("2 per second, 20 per minute, 100 per hour")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit("2 per second;20 per minute;100 per hour")
+
 
 def ratelimit_batch():
     """Special rate limit for batch processing"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit("1 per second, 5 per minute, 20 per hour")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit("1 per second;5 per minute;20 per hour")
+
 
 def ratelimit_auth():
     """Special rate limit for authentication endpoints"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit("5 per minute, 20 per hour")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit("5 per minute;20 per hour")
+
 
 def ratelimit_analytics():
     """Rate limit for analytics endpoints"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if limiter:
-                return limiter.limit("10 per minute, 100 per hour")(f)(*args, **kwargs)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    return _apply_limit("10 per minute;100 per hour")
 
 # Custom rate limit decorator with dynamic limits
 def dynamic_rate_limit(limit_func: Callable[[], str]):

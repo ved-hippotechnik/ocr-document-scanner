@@ -152,17 +152,18 @@ def process_document_async(self, scan_id: int, image_data: str,
         
         db.session.commit()
         
-        # Store in MCP memory for future reference
-        memory_mcp.store_memory(
-            content={
-                'document_type': document_type,
-                'quality_score': quality_result['overall_score'],
-                'validation_status': validation_result['is_valid']
-            },
-            context={'scan_id': scan_id, 'task_id': self.request.id},
-            tags=['ocr_processing', document_type, f"scan_{scan_id}"],
-            importance=0.7
-        )
+        # Store in MCP memory for future reference (if available)
+        if memory_mcp is not None:
+            memory_mcp.store_memory(
+                content={
+                    'document_type': document_type,
+                    'quality_score': quality_result['overall_score'],
+                    'validation_status': validation_result['is_valid']
+                },
+                context={'scan_id': scan_id, 'task_id': self.request.id},
+                tags=['ocr_processing', document_type, f"scan_{scan_id}"],
+                importance=0.7
+            )
         
         return {
             'success': True,
@@ -248,41 +249,63 @@ def batch_process_async(self, job_id: int, image_data_list: List[str]) -> Dict[s
         
         db.session.commit()
         
-        # Create subtasks for parallel processing
-        job_group = group(
+        # Create subtasks for parallel processing, chained with a callback
+        # to finalize the batch job. Using chord avoids blocking a worker
+        # with result.get() which causes deadlocks.
+        from celery import chord
+
+        header = [
             process_document_async.s(scan_id, image_data)
             for scan_id, image_data in zip(scan_ids, image_data_list)
-        )
+        ]
+        callback = _finalize_batch_job.s(job_id)
+        chord(header)(callback)
+
+        return {
+            'success': True,
+            'job_id': job_id,
+            'total_documents': len(image_data_list),
+            'status': 'processing'
+        }
         
-        # Execute subtasks
-        result = job_group.apply_async()
-        
-        # Wait for completion
-        results = result.get(timeout=300)  # 5 minute timeout
-        
-        # Update job status
-        successful = sum(1 for r in results if r.get('success', False))
+    except Exception as e:
+        logger.error(f"Batch processing error for job {job_id}: {str(e)}")
+        if job:
+            job.status = 'failed'
+            job.error_message = str(e)
+            job.completed_at = datetime.now(timezone.utc)
+            db.session.commit()
+        raise
+
+
+@task_decorator(name='app.tasks.finalize_batch_job')
+def _finalize_batch_job(results: list, job_id: int) -> Dict[str, Any]:
+    """Chord callback: update the batch job record after all documents finish."""
+    try:
+        job = BatchProcessingJob.query.get(job_id)
+        if not job:
+            logger.error("Batch job %s not found during finalization", job_id)
+            return {'success': False, 'error': 'job not found'}
+
+        successful = sum(1 for r in results if isinstance(r, dict) and r.get('success', False))
         failed = len(results) - successful
-        
+
         job.completed_at = datetime.now(timezone.utc)
         job.successful_count = successful
         job.failed_count = failed
         job.status = 'completed'
         job.processing_time = (job.completed_at - job.started_at).total_seconds()
-        
         db.session.commit()
-        
+
         return {
             'success': True,
             'job_id': job_id,
-            'total_documents': len(image_data_list),
+            'total_documents': len(results),
             'successful': successful,
             'failed': failed,
-            'results': results
         }
-        
     except Exception as e:
-        logger.error(f"Batch processing error for job {job_id}: {str(e)}")
+        logger.error("Batch finalization error for job %s: %s", job_id, e)
         if job:
             job.status = 'failed'
             job.error_message = str(e)
@@ -310,13 +333,14 @@ def generate_analytics_async(user_id: Optional[int] = None,
         # Generate comprehensive analytics using the analytics engine
         analytics_data = analytics_engine.get_dashboard_data(days=days)
 
-        # Store report
+        # Store report (if filesystem MCP is available)
         report_filename = f"analytics_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-        filesystem_mcp.write_file(
-            f"reports/{report_filename}",
-            json.dumps(analytics_data, indent=2),
-            metadata={'user_id': user_id, 'days': days}
-        )
+        if filesystem_mcp is not None:
+            filesystem_mcp.write_file(
+                f"reports/{report_filename}",
+                json.dumps(analytics_data, indent=2),
+                metadata={'user_id': user_id, 'days': days}
+            )
 
         # Cache report
         cache_key = f"analytics_report:{user_id or 'global'}:{days}"
@@ -367,17 +391,19 @@ def cleanup_old_files_async(days_to_keep: int = 30) -> Dict[str, Any]:
         
         db.session.commit()
         
-        # Clean up filesystem
-        files = filesystem_mcp.list_directory("", recursive=True)
+        # Clean up filesystem (if filesystem MCP is available)
         deleted_files = 0
-        
-        for file_info in files:
-            if file_info.created < cutoff_date:
-                if filesystem_mcp.delete_file(file_info.path):
-                    deleted_files += 1
-        
+        if filesystem_mcp is not None:
+            files = filesystem_mcp.list_directory("", recursive=True)
+            for file_info in files:
+                if file_info.created < cutoff_date:
+                    if filesystem_mcp.delete_file(file_info.path):
+                        deleted_files += 1
+
         # Clear old cache entries
-        get_cache().clear_expired()
+        cache = get_cache()
+        if cache is not None:
+            cache.clear_expired()
         
         return {
             'success': True,

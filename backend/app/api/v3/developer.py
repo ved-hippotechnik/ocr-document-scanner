@@ -37,6 +37,7 @@ from sqlalchemy import func
 
 from app.auth.jwt_utils import token_required
 from app.database import db, ApiKey, WebhookConfig, WebhookDelivery, ApiUsageLog
+from .responses import api_success, api_error
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def list_keys():
         .order_by(ApiKey.created_at.desc())
         .all()
     )
-    return jsonify({"keys": [k.to_dict() for k in keys]})
+    return api_success({"keys": [k.to_dict() for k in keys]})
 
 
 @v3_developer_bp.route("/keys", methods=["POST"])
@@ -84,7 +85,7 @@ def create_key():
 
     allowed_scopes = {"scan", "batch", "ai", "analytics"}
     if not set(scopes).issubset(allowed_scopes):
-        return jsonify({"error": f"Invalid scopes. Allowed: {sorted(allowed_scopes)}"}), 400
+        return api_error(f"Invalid scopes. Allowed: {sorted(allowed_scopes)}", "INVALID_SCOPES")
 
     rate_limit = max(1, min(rate_limit, 1000))
 
@@ -100,7 +101,7 @@ def create_key():
     result = api_key.to_dict()
     result["raw_key"] = raw_key  # Shown exactly once
     logger.info("API key created for user %s: %s", request.current_user.id, api_key.key_prefix)
-    return jsonify(result), 201
+    return api_success(result, 201)
 
 
 @v3_developer_bp.route("/keys/<int:key_id>", methods=["PATCH"])
@@ -109,7 +110,7 @@ def update_key(key_id: int):
     """Update an API key's name, scopes, rate limit, or active status."""
     api_key = ApiKey.query.filter_by(id=key_id, user_id=request.current_user.id).first()
     if not api_key:
-        return jsonify({"error": "API key not found"}), 404
+        return api_error(_KEY_NOT_FOUND, "KEY_NOT_FOUND", 404)
 
     data = request.get_json(silent=True) or {}
 
@@ -118,7 +119,7 @@ def update_key(key_id: int):
     if "scopes" in data:
         allowed_scopes = {"scan", "batch", "ai", "analytics"}
         if not set(data["scopes"]).issubset(allowed_scopes):
-            return jsonify({"error": f"Invalid scopes. Allowed: {sorted(allowed_scopes)}"}), 400
+            return api_error(f"Invalid scopes. Allowed: {sorted(allowed_scopes)}", "INVALID_SCOPES")
         api_key.scopes = json.dumps(data["scopes"])
     if "rate_limit" in data:
         api_key.rate_limit = max(1, min(int(data["rate_limit"]), 1000))
@@ -126,7 +127,7 @@ def update_key(key_id: int):
         api_key.is_active = bool(data["is_active"])
 
     db.session.commit()
-    return jsonify(api_key.to_dict())
+    return api_success(api_key.to_dict())
 
 
 @v3_developer_bp.route("/keys/<int:key_id>", methods=["DELETE"])
@@ -135,17 +136,21 @@ def revoke_key(key_id: int):
     """Permanently deactivate an API key."""
     api_key = ApiKey.query.filter_by(id=key_id, user_id=request.current_user.id).first()
     if not api_key:
-        return jsonify({"error": "API key not found"}), 404
+        return api_error(_KEY_NOT_FOUND, "KEY_NOT_FOUND", 404)
 
     api_key.is_active = False
     db.session.commit()
     logger.info("API key revoked: %s (user %s)", api_key.key_prefix, request.current_user.id)
-    return jsonify({"message": "API key revoked"})
+    return api_success({"message": "API key revoked"})
 
 
 # ---------------------------------------------------------------------------
 # Usage Analytics
 # ---------------------------------------------------------------------------
+
+_KEY_NOT_FOUND = "API key not found"
+_WEBHOOK_NOT_FOUND = "Webhook not found"
+
 
 @v3_developer_bp.route("/usage", methods=["GET"])
 @token_required
@@ -158,7 +163,7 @@ def usage_overview():
         k.id for k in ApiKey.query.filter_by(user_id=request.current_user.id).all()
     ]
     if not user_key_ids:
-        return jsonify({"usage": [], "summary": _empty_summary()})
+        return api_success({"usage": [], "summary": _empty_summary()})
 
     start_date = datetime.now(timezone.utc).date() - timedelta(days=days)
 
@@ -184,7 +189,7 @@ def usage_overview():
     total_requests = sum(r.requests for r in rows)
     total_errors = sum(r.errors for r in rows)
 
-    return jsonify({
+    return api_success({
         "usage": usage,
         "summary": {
             "total_requests": total_requests,
@@ -209,7 +214,7 @@ def usage_by_key(key_id: int):
     """Per-key usage breakdown grouped by endpoint and date."""
     api_key = ApiKey.query.filter_by(id=key_id, user_id=request.current_user.id).first()
     if not api_key:
-        return jsonify({"error": "API key not found"}), 404
+        return api_error(_KEY_NOT_FOUND, "KEY_NOT_FOUND", 404)
 
     days = request.args.get("days", 30, type=int)
     days = max(1, min(days, 365))
@@ -221,7 +226,7 @@ def usage_by_key(key_id: int):
         .order_by(ApiUsageLog.date.desc())
         .all()
     )
-    return jsonify({"key": api_key.to_dict(), "usage": [r.to_dict() for r in rows]})
+    return api_success({"key": api_key.to_dict(), "usage": [r.to_dict() for r in rows]})
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +243,7 @@ def list_webhooks():
         .order_by(WebhookConfig.created_at.desc())
         .all()
     )
-    return jsonify({"webhooks": [w.to_dict() for w in webhooks]})
+    return api_success({"webhooks": [w.to_dict() for w in webhooks]})
 
 
 @v3_developer_bp.route("/webhooks", methods=["POST"])
@@ -248,12 +253,12 @@ def create_webhook():
     data = request.get_json(silent=True) or {}
     url = data.get("url")
     if not url:
-        return jsonify({"error": "url is required"}), 400
+        return api_error("url is required", "URL_REQUIRED")
 
     allowed_events = {"scan.complete", "scan.error", "batch.complete", "batch.error"}
     events = data.get("events", ["scan.complete"])
     if not set(events).issubset(allowed_events):
-        return jsonify({"error": f"Invalid events. Allowed: {sorted(allowed_events)}"}), 400
+        return api_error(f"Invalid events. Allowed: {sorted(allowed_events)}", "INVALID_EVENTS")
 
     webhook = WebhookConfig.create(
         user_id=request.current_user.id,
@@ -265,7 +270,7 @@ def create_webhook():
 
     result = webhook.to_dict(include_secret=True)
     logger.info("Webhook created for user %s: %s", request.current_user.id, webhook.id)
-    return jsonify(result), 201
+    return api_success(result, 201)
 
 
 @v3_developer_bp.route("/webhooks/<int:webhook_id>", methods=["PATCH"])
@@ -276,7 +281,7 @@ def update_webhook(webhook_id: int):
         id=webhook_id, user_id=request.current_user.id
     ).first()
     if not webhook:
-        return jsonify({"error": "Webhook not found"}), 404
+        return api_error(_WEBHOOK_NOT_FOUND, "WEBHOOK_NOT_FOUND", 404)
 
     data = request.get_json(silent=True) or {}
     if "url" in data:
@@ -284,13 +289,13 @@ def update_webhook(webhook_id: int):
     if "events" in data:
         allowed_events = {"scan.complete", "scan.error", "batch.complete", "batch.error"}
         if not set(data["events"]).issubset(allowed_events):
-            return jsonify({"error": f"Invalid events. Allowed: {sorted(allowed_events)}"}), 400
+            return api_error(f"Invalid events. Allowed: {sorted(allowed_events)}", "INVALID_EVENTS")
         webhook.events = json.dumps(data["events"])
     if "is_active" in data:
         webhook.is_active = bool(data["is_active"])
 
     db.session.commit()
-    return jsonify(webhook.to_dict())
+    return api_success(webhook.to_dict())
 
 
 @v3_developer_bp.route("/webhooks/<int:webhook_id>", methods=["DELETE"])
@@ -301,12 +306,12 @@ def delete_webhook(webhook_id: int):
         id=webhook_id, user_id=request.current_user.id
     ).first()
     if not webhook:
-        return jsonify({"error": "Webhook not found"}), 404
+        return api_error(_WEBHOOK_NOT_FOUND, "WEBHOOK_NOT_FOUND", 404)
 
     db.session.delete(webhook)
     db.session.commit()
     logger.info("Webhook deleted: %s (user %s)", webhook_id, request.current_user.id)
-    return jsonify({"message": "Webhook deleted"})
+    return api_success({"message": "Webhook deleted"})
 
 
 @v3_developer_bp.route("/webhooks/<int:webhook_id>/test", methods=["POST"])
@@ -317,7 +322,7 @@ def test_webhook(webhook_id: int):
         id=webhook_id, user_id=request.current_user.id
     ).first()
     if not webhook:
-        return jsonify({"error": "Webhook not found"}), 404
+        return api_error(_WEBHOOK_NOT_FOUND, "WEBHOOK_NOT_FOUND", 404)
 
     from app.webhooks import send_webhook_to_config
     delivery = send_webhook_to_config(
@@ -326,7 +331,7 @@ def test_webhook(webhook_id: int):
         payload={"message": "This is a test webhook delivery"},
         async_send=False,
     )
-    return jsonify({
+    return api_success({
         "message": "Test webhook sent",
         "delivery": delivery.to_dict() if delivery else None,
     })
@@ -340,7 +345,7 @@ def list_deliveries(webhook_id: int):
         id=webhook_id, user_id=request.current_user.id
     ).first()
     if not webhook:
-        return jsonify({"error": "Webhook not found"}), 404
+        return api_error(_WEBHOOK_NOT_FOUND, "WEBHOOK_NOT_FOUND", 404)
 
     page = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 20, type=int), 100)
@@ -352,7 +357,7 @@ def list_deliveries(webhook_id: int):
         .paginate(page=page, per_page=per_page, error_out=False)
     )
 
-    return jsonify({
+    return api_success({
         "deliveries": [d.to_dict() for d in pagination.items],
         "total": pagination.total,
         "page": pagination.page,
