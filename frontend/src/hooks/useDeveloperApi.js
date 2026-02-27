@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import config from '../config';
 
 const BASE = config.endpoints.developerKeys?.replace('/keys', '') ||
-  `${config.API_URL}/api/developer`;
+  `${config.API_URL}/api/v3/developer`;
 
 function authHeaders() {
   const token = localStorage.getItem('access_token');

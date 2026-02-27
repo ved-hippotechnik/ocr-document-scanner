@@ -1,5 +1,7 @@
 """
-Enhanced error handling and validation system
+Consolidated validation and error handling system for OCR Document Scanner.
+
+Merged from the former validation.py and validators.py modules.
 """
 import base64
 import io
@@ -20,6 +22,10 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace(_UTC_SUFFIX, 'Z')
 
 
+# ---------------------------------------------------------------------------
+# Custom exception classes
+# ---------------------------------------------------------------------------
+
 class ValidationError(Exception):
     """Custom validation error"""
     def __init__(self, message: str, code: str = "VALIDATION_ERROR", details: str = None):
@@ -36,45 +42,50 @@ class ProcessingError(Exception):
         self.details = details
         super().__init__(self.message)
 
+
+# ---------------------------------------------------------------------------
+# Document validator (base64 image validation)
+# ---------------------------------------------------------------------------
+
 class DocumentValidator:
     """Validator for document processing requests"""
-    
+
     MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
     SUPPORTED_FORMATS = {'JPEG', 'PNG', 'JPG', 'WEBP'}
     MIN_IMAGE_DIMENSION = 100
     MAX_IMAGE_DIMENSION = 8000
-    
+
     @staticmethod
     def validate_request_data(data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate incoming request data"""
         if not data:
             raise ValidationError("Request body is empty", "EMPTY_REQUEST")
-        
+
         if 'image' not in data:
             raise ValidationError("Missing 'image' field in request", "MISSING_IMAGE")
-        
+
         if not isinstance(data['image'], str):
             raise ValidationError("Image must be a base64 encoded string", "INVALID_IMAGE_FORMAT")
-        
+
         if not data['image'].strip():
             raise ValidationError("Image data is empty", "EMPTY_IMAGE")
-        
+
         # Validate image data
         image = DocumentValidator.validate_and_decode_image(data['image'])
-        
+
         # Validate optional fields
         validated_data = {
             'image': image,
             'document_type': data.get('document_type'),
             'options': data.get('options', {})
         }
-        
+
         # Validate options if provided
         if validated_data['options']:
             DocumentValidator.validate_options(validated_data['options'])
-        
+
         return validated_data
-    
+
     @staticmethod
     def validate_and_decode_image(image_data: str) -> Image.Image:
         """Validate and decode base64 image"""
@@ -82,30 +93,30 @@ class DocumentValidator:
             # Remove data URL prefix if present
             if ',' in image_data:
                 image_data = image_data.split(',', 1)[1]
-            
+
             # Decode base64
             image_bytes = base64.b64decode(image_data)
-            
+
             # Check size
             if len(image_bytes) > DocumentValidator.MAX_IMAGE_SIZE:
                 raise ValidationError(
                     f"Image size ({len(image_bytes)} bytes) exceeds maximum allowed size ({DocumentValidator.MAX_IMAGE_SIZE} bytes)",
                     "FILE_TOO_LARGE"
                 )
-            
+
             if len(image_bytes) < 1000:  # Very small file, likely invalid
                 raise ValidationError("Image file is too small to be valid", "INVALID_IMAGE")
-            
+
             # Try to open and validate image
             image = Image.open(io.BytesIO(image_bytes))
-            
+
             # Check format
             if image.format not in DocumentValidator.SUPPORTED_FORMATS:
                 raise ValidationError(
                     f"Unsupported image format: {image.format}. Supported formats: {', '.join(DocumentValidator.SUPPORTED_FORMATS)}",
                     "UNSUPPORTED_FORMAT"
                 )
-            
+
             # Check dimensions
             width, height = image.size
             if width < DocumentValidator.MIN_IMAGE_DIMENSION or height < DocumentValidator.MIN_IMAGE_DIMENSION:
@@ -113,26 +124,26 @@ class DocumentValidator:
                     f"Image dimensions ({width}x{height}) are too small. Minimum: {DocumentValidator.MIN_IMAGE_DIMENSION}x{DocumentValidator.MIN_IMAGE_DIMENSION}",
                     "IMAGE_TOO_SMALL"
                 )
-            
+
             if width > DocumentValidator.MAX_IMAGE_DIMENSION or height > DocumentValidator.MAX_IMAGE_DIMENSION:
                 raise ValidationError(
                     f"Image dimensions ({width}x{height}) are too large. Maximum: {DocumentValidator.MAX_IMAGE_DIMENSION}x{DocumentValidator.MAX_IMAGE_DIMENSION}",
                     "IMAGE_TOO_LARGE"
                 )
-            
+
             # Convert to RGB if necessary
             if image.mode != 'RGB':
                 image = image.convert('RGB')
-            
+
             return image
-            
+
         except base64.binascii.Error:
             raise ValidationError("Invalid base64 encoding", "INVALID_BASE64")
         except Exception as e:
             if isinstance(e, ValidationError):
                 raise
             raise ValidationError(f"Failed to process image: {str(e)}", "INVALID_IMAGE")
-    
+
     @staticmethod
     def validate_options(options: Dict[str, Any]) -> None:
         """Validate processing options"""
@@ -143,32 +154,37 @@ class DocumentValidator:
             'confidence_threshold': (int, float),
             'max_processing_time': (int, float)
         }
-        
+
         for key, value in options.items():
             if key not in valid_options:
                 raise ValidationError(f"Unknown option: {key}", "INVALID_OPTION")
-            
+
             expected_type = valid_options[key]
             if not isinstance(value, expected_type):
                 raise ValidationError(
                     f"Option '{key}' must be of type {expected_type.__name__ if hasattr(expected_type, '__name__') else expected_type}",
                     "INVALID_OPTION_TYPE"
                 )
-        
+
         # Validate specific option values
         if 'confidence_threshold' in options:
             threshold = options['confidence_threshold']
             if not 0 <= threshold <= 1:
                 raise ValidationError("confidence_threshold must be between 0 and 1", "INVALID_THRESHOLD")
-        
+
         if 'max_processing_time' in options:
             max_time = options['max_processing_time']
             if max_time <= 0 or max_time > 300:  # 5 minutes max
                 raise ValidationError("max_processing_time must be between 0 and 300 seconds", "INVALID_TIMEOUT")
 
+
+# ---------------------------------------------------------------------------
+# Error handler
+# ---------------------------------------------------------------------------
+
 class ErrorHandler:
     """Enhanced error handling system"""
-    
+
     @staticmethod
     def handle_error(error: Exception) -> tuple:
         """Handle and format errors for API responses"""
@@ -240,7 +256,7 @@ class ErrorHandler:
         if request_id:
             response['request_id'] = request_id
         return jsonify(response), status_code
-    
+
     @staticmethod
     def create_success_response(data: Dict[str, Any], status_code: int = 200) -> tuple:
         """Create a standardized success response"""
@@ -251,6 +267,11 @@ class ErrorHandler:
         }
         return jsonify(response), status_code
 
+
+# ---------------------------------------------------------------------------
+# Decorators
+# ---------------------------------------------------------------------------
+
 def validate_request_json():
     """Decorator to validate JSON request data"""
     def decorator(f):
@@ -258,20 +279,20 @@ def validate_request_json():
             try:
                 if not request.is_json:
                     raise ValidationError("Content-Type must be application/json", "INVALID_CONTENT_TYPE")
-                
+
                 data = request.get_json()
                 if data is None:
                     raise ValidationError("Invalid JSON in request body", "INVALID_JSON")
-                
+
                 # Validate the request data
                 validated_data = DocumentValidator.validate_request_data(data)
-                
+
                 # Pass validated data to the route function
                 return f(validated_data, *args, **kwargs)
-                
+
             except Exception as e:
                 return ErrorHandler.handle_error(e)
-        
+
         wrapper.__name__ = f.__name__
         return wrapper
     return decorator
@@ -284,10 +305,15 @@ def handle_processing_errors():
                 return f(*args, **kwargs)
             except Exception as e:
                 return ErrorHandler.handle_error(e)
-        
+
         wrapper.__name__ = f.__name__
         return wrapper
     return decorator
+
+
+# ---------------------------------------------------------------------------
+# Security headers
+# ---------------------------------------------------------------------------
 
 def add_security_headers(response):
     """Add security headers to response"""
@@ -297,16 +323,23 @@ def add_security_headers(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return response
 
+
+# ---------------------------------------------------------------------------
+# Performance monitoring
+# ---------------------------------------------------------------------------
+
 class PerformanceMonitor:
     """Monitor API performance"""
-    
+
     @staticmethod
     def log_performance(endpoint: str, processing_time: float, success: bool, document_type: str = None):
         """Log performance metrics"""
         logger.info(f"Performance: {endpoint} - {processing_time:.3f}s - {'SUCCESS' if success else 'FAILED'} - {document_type or 'N/A'}")
-        
-        # Here you could send metrics to external monitoring service
-        # e.g., StatsD, Prometheus, etc.
+
+
+# ---------------------------------------------------------------------------
+# Input validation helpers
+# ---------------------------------------------------------------------------
 
 def validate_email(email: str) -> bool:
     """Validate email format"""
@@ -361,49 +394,36 @@ def sanitize_input(text: str) -> str:
     """Sanitize user input"""
     if not text:
         return ''
-    
-    # Remove potential script tags and other dangerous content
+
     import re
-    text = re.sub(r'<[^>]*>', '', text)  # Remove HTML tags
-    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)  # Remove javascript:
-    text = re.sub(r'vbscript:', '', text, flags=re.IGNORECASE)  # Remove vbscript:
-    text = re.sub(r'onload=', '', text, flags=re.IGNORECASE)  # Remove onload
-    text = re.sub(r'onerror=', '', text, flags=re.IGNORECASE)  # Remove onerror
-    
+    text = re.sub(r'<[^>]*>', '', text)
+    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'vbscript:', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'onload=', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'onerror=', '', text, flags=re.IGNORECASE)
+
     return text.strip()
 
 def validate_json_input(data: dict) -> dict:
-    """
-    Validate JSON input data
-    
-    Args:
-        data: JSON data to validate
-        
-    Returns:
-        Dictionary with validation results
-    """
+    """Validate JSON input data"""
     try:
         if not isinstance(data, dict):
             return {
                 'valid': False,
                 'error': 'Invalid data format. Expected JSON object.'
             }
-        
-        # Basic validation - can be extended based on specific requirements
+
         if not data:
             return {
                 'valid': False,
                 'error': 'Empty data provided'
             }
-        
-        # Check for required fields if any
-        # Add specific validation logic here as needed
-        
+
         return {
             'valid': True,
             'data': data
         }
-    
+
     except Exception as e:
         return {
             'valid': False,
@@ -414,12 +434,10 @@ def validate_file_upload(file_content: bytes, allowed_extensions: List[str] = No
     """Validate uploaded file content"""
     if not file_content:
         return {'valid': False, 'message': 'File content is empty'}
-    
-    # Check file size
+
     if len(file_content) > 10 * 1024 * 1024:  # 10MB
         return {'valid': False, 'message': 'File size exceeds maximum allowed size (10MB)'}
-    
-    # Check for malicious content patterns
+
     malicious_patterns = [
         b'<?php',
         b'<script',
@@ -430,20 +448,19 @@ def validate_file_upload(file_content: bytes, allowed_extensions: List[str] = No
         b'<object',
         b'<embed'
     ]
-    
+
     content_lower = file_content.lower()
     for pattern in malicious_patterns:
         if pattern in content_lower:
             return {'valid': False, 'message': 'File contains potentially malicious content'}
-    
-    # Validate file signature (magic bytes)
+
     magic_bytes = {
         'jpeg': [b'\xFF\xD8\xFF'],
         'png': [b'\x89PNG\r\n\x1a\n'],
         'gif': [b'GIF87a', b'GIF89a'],
         'webp': [b'RIFF', b'WEBP']
     }
-    
+
     if allowed_extensions:
         valid_signature = False
         for ext in allowed_extensions:
@@ -452,21 +469,26 @@ def validate_file_upload(file_content: bytes, allowed_extensions: List[str] = No
                     if file_content.startswith(signature):
                         valid_signature = True
                         break
-        
+
         if not valid_signature:
             return {'valid': False, 'message': 'File signature does not match allowed file types'}
-    
+
     return {'valid': True, 'message': 'File is valid'}
+
+
+# ---------------------------------------------------------------------------
+# Security validators
+# ---------------------------------------------------------------------------
 
 class SecurityValidator:
     """Security validation utilities"""
-    
+
     @staticmethod
     def validate_sql_injection(text: str) -> bool:
         """Check for potential SQL injection patterns"""
         if not text:
             return True
-        
+
         sql_patterns = [
             r"(?i)(union|select|insert|delete|update|drop|create|alter|exec|execute)",
             r"(?i)(or|and)\s+\d+\s*=\s*\d+",
@@ -474,20 +496,20 @@ class SecurityValidator:
             r"(?i)(\-\-|\#|\/\*|\*\/)",
             r"(?i)(xp_|sp_|fn_)"
         ]
-        
+
         import re
         for pattern in sql_patterns:
             if re.search(pattern, text):
                 return False
-        
+
         return True
-    
+
     @staticmethod
     def validate_xss(text: str) -> bool:
         """Check for potential XSS patterns"""
         if not text:
             return True
-        
+
         xss_patterns = [
             r"(?i)<script[^>]*>.*?</script>",
             r"(?i)javascript:",
@@ -500,91 +522,75 @@ class SecurityValidator:
             r"(?i)<object[^>]*>",
             r"(?i)<embed[^>]*>"
         ]
-        
+
         import re
         for pattern in xss_patterns:
             if re.search(pattern, text):
                 return False
-        
+
         return True
-    
+
     @staticmethod
     def validate_path_traversal(path: str) -> bool:
         """Check for path traversal patterns"""
         if not path:
             return True
-        
+
         import os
         import urllib.parse
-        
-        # Decode URL-encoded characters multiple times to catch nested encoding
+
         decoded_path = path
         for _ in range(3):
             try:
                 decoded_path = urllib.parse.unquote(decoded_path)
             except:
                 pass
-        
-        # Normalize the path
+
         normalized = os.path.normpath(decoded_path)
-        
-        # Check for dangerous patterns in both original and decoded paths
+
         dangerous_patterns = [
-            '../',
-            '..\\',
-            '..%2f',
-            '..%5c', 
-            '%2e%2e%2f',
-            '%2e%2e%5c',
-            '..%252f',
-            '..%255c',
-            '..%c0%af',
-            '..%c1%9c'
+            '../', '..\\', '..%2f', '..%5c',
+            '%2e%2e%2f', '%2e%2e%5c', '..%252f',
+            '..%255c', '..%c0%af', '..%c1%9c'
         ]
-        
+
         paths_to_check = [path.lower(), decoded_path.lower(), normalized.lower()]
-        
+
         for check_path in paths_to_check:
             for pattern in dangerous_patterns:
                 if pattern in check_path:
                     return False
-            
-            # Check for absolute paths
             if check_path.startswith('/') or check_path.startswith('\\'):
                 return False
-            
-            # Check for drive letters (Windows)
             if len(check_path) > 1 and check_path[1] == ':':
                 return False
-        
-        # Check if normalized path tries to go outside current directory
+
         if normalized.startswith('..') or normalized.startswith('/'):
             return False
-        
+
         return True
+
 
 class InputSanitizer:
     """Advanced input sanitization"""
-    
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         """Sanitize filename for safe storage"""
         if not filename:
             return 'unnamed_file'
-        
+
         import re
-        # Remove path separators and dangerous characters
         filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-        filename = re.sub(r'\.+', '.', filename)  # Replace multiple dots with single dot
-        filename = filename.strip('.')  # Remove leading/trailing dots
-        
-        # Limit length
+        filename = re.sub(r'\.+', '.', filename)
+        filename = filename.strip('.')
+
         if len(filename) > 255:
             name, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
             filename = name[:250] + ('.' + ext if ext else '')
-        
+
         return filename or 'unnamed_file'
-    
+
     @staticmethod
     def sanitize_json_data(data: dict) -> dict:
         """Recursively sanitize JSON data"""

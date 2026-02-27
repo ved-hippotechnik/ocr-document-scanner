@@ -56,8 +56,8 @@ const AdminDashboard = () => {
     setError(null);
     try {
       const [healthRes, statsRes, aiRes] = await Promise.allSettled([
-        fetch(`${API_URL}/api/v2/health`).then((r) => r.json()),
-        fetch(`${API_URL}/api/stats`).then((r) => r.json()),
+        fetch(`${API_URL}/api/v3/health`).then((r) => r.json()),
+        fetch(`${API_URL}/api/v3/stats`).then((r) => r.json()),
         fetch(`${API_URL}/api/ai/model/status`).then((r) => r.json()),
       ]);
       if (healthRes.status === 'fulfilled') setHealth(healthRes.value);

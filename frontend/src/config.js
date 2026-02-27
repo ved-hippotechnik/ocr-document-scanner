@@ -8,31 +8,21 @@ const config = {
   endpoints: {
     // Health checks
     health: `${API_URL}/health`,
-    healthV2: `${API_URL}/api/v2/health`,
-    healthV3: `${API_URL}/api/v3/health`,
-    
+    healthReady: `${API_URL}/health/ready`,
+
     // Scanning endpoints
-    scan: `${API_URL}/api/scan`,
-    scanV2: `${API_URL}/api/v2/scan`,
-    scanV3: `${API_URL}/api/v3/scan`,
-    
-    // Processors
-    processors: `${API_URL}/api/processors`,
-    processorsV3: `${API_URL}/api/v3/processors`,
-    
-    // Statistics and metrics
-    stats: `${API_URL}/api/stats`,
-    metrics: `${API_URL}/metrics`,
-    metricsSummary: `${API_URL}/api/metrics/summary`,
-    
-    // Authentication
+    scan: `${API_URL}/api/v3/scan`,
+
+    // Processors & system
+    processors: `${API_URL}/api/v3/processors`,
+    stats: `${API_URL}/api/v3/stats`,
+    languages: `${API_URL}/api/v3/languages`,
+
+    // Authentication (no version prefix)
     login: `${API_URL}/api/auth/login`,
     register: `${API_URL}/api/auth/register`,
     refresh: `${API_URL}/api/auth/refresh`,
     profile: `${API_URL}/api/auth/profile`,
-    
-    // Languages
-    languages: `${API_URL}/api/languages`,
 
     // AI endpoints
     aiClassify: `${API_URL}/api/ai/classify`,
@@ -46,21 +36,21 @@ const config = {
     aiVisionClassify: `${API_URL}/api/ai/vision/classify`,
     aiVisionExtract: `${API_URL}/api/ai/vision/extract`,
     aiVisionValidate: `${API_URL}/api/ai/vision/validate`,
-    
+
     // Analytics
-    analyticsDashboard: `${API_URL}/api/analytics/dashboard`,
-    analyticsTrends: `${API_URL}/api/analytics/trends`,
-    analyticsExport: `${API_URL}/api/analytics/export`,
-    
+    analyticsDashboard: `${API_URL}/api/v3/analytics/dashboard`,
+    analyticsTrends: `${API_URL}/api/v3/analytics/trends`,
+    analyticsExport: `${API_URL}/api/v3/analytics/export`,
+
     // Batch processing
-    batchCreate: `${API_URL}/api/batch/jobs`,
-    batchStatus: `${API_URL}/api/batch/jobs`,
-    batchCancel: `${API_URL}/api/batch/jobs`,
+    batchCreate: `${API_URL}/api/v3/batch`,
+    batchStatus: `${API_URL}/api/v3/batch`,
+    batchCancel: `${API_URL}/api/v3/batch`,
 
     // Developer portal
-    developerKeys: `${API_URL}/api/developer/keys`,
-    developerUsage: `${API_URL}/api/developer/usage`,
-    developerWebhooks: `${API_URL}/api/developer/webhooks`,
+    developerKeys: `${API_URL}/api/v3/developer/keys`,
+    developerUsage: `${API_URL}/api/v3/developer/usage`,
+    developerWebhooks: `${API_URL}/api/v3/developer/webhooks`,
   },
   
   // File upload configuration

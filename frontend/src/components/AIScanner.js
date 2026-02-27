@@ -77,7 +77,7 @@ const AIScanner = () => {
     const { signal } = controller;
 
     // Fetch available languages
-    fetch(`${API_URL}/api/languages`, { signal })
+    fetch(`${API_URL}/api/v3/languages`, { signal })
       .then(res => res.json())
       .then(data => {
         if (data.success) {

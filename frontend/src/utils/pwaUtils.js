@@ -91,7 +91,7 @@ export const subscribeToPushNotifications = async () => {
       console.log('Push subscription created:', subscription);
       
       // Send subscription to server
-      await fetch('/api/v2/push/subscribe', {
+      await fetch('/api/v3/push/subscribe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,7 +120,7 @@ export const unsubscribeFromPushNotifications = async () => {
         console.log('Push subscription removed');
         
         // Notify server
-        await fetch('/api/v2/push/unsubscribe', {
+        await fetch('/api/v3/push/unsubscribe', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

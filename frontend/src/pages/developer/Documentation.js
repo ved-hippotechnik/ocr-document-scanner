@@ -20,7 +20,7 @@ curl -X POST \\
   -H "X-API-Key: ocr_live_YOUR_KEY_HERE" \\
   -H "Content-Type: application/json" \\
   -d '{"image": "<base64>", "document_type": "passport"}' \\
-  https://your-domain.com/api/v2/scan`,
+  https://your-domain.com/api/v3/scan`,
 
   python: `import requests
 
@@ -139,8 +139,8 @@ export default function Documentation() {
           </thead>
           <tbody>
             <tr><td><code>POST</code></td><td><code>/api/v3/scan</code></td><td>scan</td><td>Process a single document</td></tr>
-            <tr><td><code>POST</code></td><td><code>/api/v2/scan</code></td><td>scan</td><td>Enhanced scan with quality assessment</td></tr>
-            <tr><td><code>POST</code></td><td><code>/api/batch/jobs</code></td><td>batch</td><td>Create a batch processing job</td></tr>
+            <tr><td><code>POST</code></td><td><code>/api/v3/scan</code></td><td>scan</td><td>Enhanced scan with quality assessment</td></tr>
+            <tr><td><code>POST</code></td><td><code>/api/v3/batch</code></td><td>batch</td><td>Create a batch processing job</td></tr>
             <tr><td><code>POST</code></td><td><code>/api/ai/classify</code></td><td>ai</td><td>Classify document type via AI</td></tr>
             <tr><td><code>GET</code></td><td><code>/health</code></td><td>—</td><td>Service health check</td></tr>
           </tbody>

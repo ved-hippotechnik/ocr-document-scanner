@@ -305,27 +305,11 @@ def generate_analytics_async(user_id: Optional[int] = None,
         Analytics report data
     """
     try:
-        from .analytics_dashboard import AnalyticsDashboard
-        dashboard = AnalyticsDashboard()
-        
-        # Calculate date range
-        end_date = datetime.now(timezone.utc)
-        start_date = end_date - timedelta(days=days)
-        
-        # Generate comprehensive analytics
-        analytics_data = {
-            'date_range': {
-                'start': start_date.isoformat(),
-                'end': end_date.isoformat()
-            },
-            'processing_stats': dashboard.get_processing_stats(start_date, end_date, user_id),
-            'document_distribution': dashboard.get_document_distribution(start_date, end_date, user_id),
-            'quality_metrics': dashboard.get_quality_metrics(start_date, end_date, user_id),
-            'performance_trends': dashboard.get_performance_trends(start_date, end_date, user_id),
-            'error_analysis': dashboard.get_error_analysis(start_date, end_date, user_id),
-            'user_activity': dashboard.get_user_activity(start_date, end_date) if not user_id else None
-        }
-        
+        from .analytics import analytics_engine
+
+        # Generate comprehensive analytics using the analytics engine
+        analytics_data = analytics_engine.get_dashboard_data(days=days)
+
         # Store report
         report_filename = f"analytics_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
         filesystem_mcp.write_file(
@@ -333,17 +317,17 @@ def generate_analytics_async(user_id: Optional[int] = None,
             json.dumps(analytics_data, indent=2),
             metadata={'user_id': user_id, 'days': days}
         )
-        
+
         # Cache report
         cache_key = f"analytics_report:{user_id or 'global'}:{days}"
         get_cache().set(cache_key, analytics_data, ttl=3600)
-        
+
         return {
             'success': True,
             'report_file': report_filename,
             'data': analytics_data
         }
-        
+
     except Exception as e:
         logger.error(f"Analytics generation error: {str(e)}")
         raise

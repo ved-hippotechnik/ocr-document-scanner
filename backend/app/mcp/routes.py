@@ -7,7 +7,7 @@ Provides REST API endpoints for MCP servers.
 from flask import Blueprint, request, jsonify, current_app
 import logging
 from typing import Dict, Any
-from ..auth.jwt_utils import jwt_required, get_current_user
+from ..auth.jwt_utils import token_required as jwt_required, get_current_user
 from .sequential_thinking import SequentialThinkingMCP, ThinkingStage, ThoughtStep
 from .filesystem import FilesystemMCP
 from .memory import MemoryMCP
@@ -16,7 +16,7 @@ from .context7 import Context7MCP, ContextLayer
 logger = logging.getLogger(__name__)
 
 # Create Blueprint
-mcp_bp = Blueprint('mcp', __name__, url_prefix='/api/mcp')
+mcp_bp = Blueprint('mcp', __name__, url_prefix='/api/v3/mcp')
 
 # Initialize MCP servers (will be properly initialized in app factory)
 sequential_thinking_mcp = None

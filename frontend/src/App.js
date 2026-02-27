@@ -30,6 +30,7 @@ const WebhooksPage = React.lazy(() => import('./pages/developer/Webhooks'));
 const DocumentationPage = React.lazy(() => import('./pages/developer/Documentation'));
 const LoginForm = React.lazy(() => import('./components/Auth/LoginForm'));
 const RegisterForm = React.lazy(() => import('./components/Auth/RegisterForm'));
+const ProtectedRoute = React.lazy(() => import('./components/Auth/ProtectedRoute'));
 
 function RouteLoader() {
   return (
@@ -271,12 +272,16 @@ function App() {
                   } />
                   <Route path="/admin" element={
                     <ErrorBoundary fallbackMessage="Admin Dashboard failed to load">
-                      <AdminDashboard />
+                      <ProtectedRoute>
+                        <AdminDashboard />
+                      </ProtectedRoute>
                     </ErrorBoundary>
                   } />
                   <Route path="/developer" element={
                     <ErrorBoundary fallbackMessage="Developer Portal failed to load">
-                      <DeveloperPortal />
+                      <ProtectedRoute>
+                        <DeveloperPortal />
+                      </ProtectedRoute>
                     </ErrorBoundary>
                   }>
                     <Route index element={<DevDashboard />} />
@@ -287,12 +292,16 @@ function App() {
                   </Route>
                   <Route path="/auth/login" element={
                     <ErrorBoundary fallbackMessage="Login form failed to load">
-                      <LoginForm />
+                      <ProtectedRoute requireAuth={false}>
+                        <LoginForm />
+                      </ProtectedRoute>
                     </ErrorBoundary>
                   } />
                   <Route path="/auth/register" element={
                     <ErrorBoundary fallbackMessage="Registration form failed to load">
-                      <RegisterForm />
+                      <ProtectedRoute requireAuth={false}>
+                        <RegisterForm />
+                      </ProtectedRoute>
                     </ErrorBoundary>
                   } />
                 </Routes>
