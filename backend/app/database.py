@@ -107,6 +107,8 @@ class ScanHistory(db.Model):
 
     __table_args__ = (
         db.Index('ix_scan_history_doctype_created', 'document_type', 'created_at'),
+        db.Index('ix_scan_history_status', 'status'),
+        db.Index('ix_scan_history_batch_job_id', 'batch_job_id'),
     )
     confidence_score = db.Column(db.Float)
     quality_score = db.Column(db.Float)
@@ -118,7 +120,7 @@ class ScanHistory(db.Model):
     error_message = db.Column(db.Text)
     ip_address = db.Column(db.String(45))
     user_agent = db.Column(db.String(500))
-    status = db.Column(db.String(50), default='pending')  # pending, processing, completed, failed, cancelled
+    status = db.Column(db.String(50), default='pending')
     task_id = db.Column(db.String(255), index=True)  # Celery task ID
     batch_job_id = db.Column(db.Integer, db.ForeignKey('batch_processing_jobs.id'))
     validation_status = db.Column(db.String(50))  # valid, invalid, partial
@@ -204,7 +206,7 @@ class BatchProcessingJob(db.Model):
     processed_documents = db.Column(db.Integer, default=0)
     successful_count = db.Column(db.Integer, default=0)
     failed_count = db.Column(db.Integer, default=0)
-    status = db.Column(db.String(50), default='queued')  # queued, processing, completed, failed, cancelled
+    status = db.Column(db.String(50), default='queued', index=True)
     task_id = db.Column(db.String(255), index=True)  # Celery task ID
     priority = db.Column(db.Integer, default=0)  # Higher number = higher priority
     processing_time = db.Column(db.Float)

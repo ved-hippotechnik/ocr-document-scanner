@@ -1,37 +1,14 @@
 import { useState, useCallback } from 'react';
-import config from '../config';
+import api from '../utils/apiClient';
 
-const BASE = config.endpoints.developerKeys?.replace('/keys', '') ||
-  `${config.API_URL}/api/v3/developer`;
+const PREFIX = '/api/v3/developer';
 
-function authHeaders() {
-  const token = localStorage.getItem('access_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-async function api(path, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      headers: authHeaders(),
-      signal: controller.signal,
-      ...options,
-    });
-    clearTimeout(timeoutId);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Request failed');
-    return data;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
-    throw error;
-  }
+async function request(path, options = {}) {
+  const { data } = await api({ url: `${PREFIX}${path}`, ...options });
+  // The unified v3 envelope wraps payload under `data`, but for backward
+  // compatibility with existing UI code we return the inner `data` field
+  // when present, otherwise the full response.
+  return data.data ?? data;
 }
 
 export function useDeveloperApi() {
@@ -45,7 +22,8 @@ export function useDeveloperApi() {
       const result = await fn();
       return result;
     } catch (err) {
-      setError(err.message);
+      const msg = err.response?.data?.error?.message || err.message;
+      setError(msg);
       throw err;
     } finally {
       setLoading(false);
@@ -53,50 +31,50 @@ export function useDeveloperApi() {
   }, []);
 
   // ── API Keys ──────────────────────────────────────────────────────────
-  const listKeys = useCallback(() => call(() => api('/keys')), [call]);
+  const listKeys = useCallback(() => call(() => request('/keys')), [call]);
   const createKey = useCallback(
-    (body) => call(() => api('/keys', { method: 'POST', body: JSON.stringify(body) })),
+    (body) => call(() => request('/keys', { method: 'POST', data: body })),
     [call],
   );
   const updateKey = useCallback(
-    (id, body) => call(() => api(`/keys/${id}`, { method: 'PATCH', body: JSON.stringify(body) })),
+    (id, body) => call(() => request(`/keys/${id}`, { method: 'PATCH', data: body })),
     [call],
   );
   const revokeKey = useCallback(
-    (id) => call(() => api(`/keys/${id}`, { method: 'DELETE' })),
+    (id) => call(() => request(`/keys/${id}`, { method: 'DELETE' })),
     [call],
   );
 
   // ── Usage ─────────────────────────────────────────────────────────────
   const getUsage = useCallback(
-    (days = 30) => call(() => api(`/usage?days=${days}`)),
+    (days = 30) => call(() => request(`/usage?days=${days}`)),
     [call],
   );
   const getKeyUsage = useCallback(
-    (id, days = 30) => call(() => api(`/usage/keys/${id}?days=${days}`)),
+    (id, days = 30) => call(() => request(`/usage/keys/${id}?days=${days}`)),
     [call],
   );
 
   // ── Webhooks ──────────────────────────────────────────────────────────
-  const listWebhooks = useCallback(() => call(() => api('/webhooks')), [call]);
+  const listWebhooks = useCallback(() => call(() => request('/webhooks')), [call]);
   const createWebhook = useCallback(
-    (body) => call(() => api('/webhooks', { method: 'POST', body: JSON.stringify(body) })),
+    (body) => call(() => request('/webhooks', { method: 'POST', data: body })),
     [call],
   );
   const updateWebhook = useCallback(
-    (id, body) => call(() => api(`/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(body) })),
+    (id, body) => call(() => request(`/webhooks/${id}`, { method: 'PATCH', data: body })),
     [call],
   );
   const deleteWebhook = useCallback(
-    (id) => call(() => api(`/webhooks/${id}`, { method: 'DELETE' })),
+    (id) => call(() => request(`/webhooks/${id}`, { method: 'DELETE' })),
     [call],
   );
   const testWebhook = useCallback(
-    (id) => call(() => api(`/webhooks/${id}/test`, { method: 'POST' })),
+    (id) => call(() => request(`/webhooks/${id}/test`, { method: 'POST' })),
     [call],
   );
   const listDeliveries = useCallback(
-    (id, page = 1) => call(() => api(`/webhooks/${id}/deliveries?page=${page}`)),
+    (id, page = 1) => call(() => request(`/webhooks/${id}/deliveries?page=${page}`)),
     [call],
   );
 

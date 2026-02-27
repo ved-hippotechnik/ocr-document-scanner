@@ -9,7 +9,6 @@ import Alert from '@mui/material/Alert';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 import Navbar from './components/Navbar';
-import Dashboard from './pages/Dashboard';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OfflineStatus from './components/OfflineStatus';
 import UpdatePrompt from './components/UpdatePrompt';
@@ -17,7 +16,8 @@ import { registerServiceWorker, requestNotificationPermission } from './utils/pw
 import { initMetrics } from './utils/metrics';
 import './App.css';
 
-// Lazy-load heavy route components
+// Lazy-load heavy route components (Dashboard includes recharts)
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Scanner = React.lazy(() => import('./pages/Scanner'));
 const AIScanner = React.lazy(() => import('./components/AIScanner'));
 const BatchProcessor = React.lazy(() => import('./components/BatchProcessor'));
